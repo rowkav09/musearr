@@ -21,13 +21,15 @@ flowchart LR
   Worker --> Plex
 ```
 
-The browser only uses same-origin API routes. The API is the sole gateway to Plex and PostgreSQL; encrypted Plex credentials never enter the browser. PostgreSQL stores both the library mirror and durable background jobs. The worker performs bounded, retry-safe Plex imports, scheduled reconciliation, playlist imports, and future intelligence jobs.
+The browser only uses same-origin API routes. The API is the sole gateway to Plex and PostgreSQL; encrypted Plex credentials never enter the browser. PostgreSQL stores both the library mirror and durable background jobs. The worker performs bounded, retry-safe Plex imports, scheduled reconciliation, playlist imports, and intelligence jobs.
 
 ## Data and trust model
 
 Plex identifiers are retained alongside Musearr IDs so records can be reconciled safely. Library imports are idempotent and keep unresolved playlist entries until their tracks are available. The system never silently changes Plex metadata or audio files. Future metadata fixes must be proposed with evidence, approved by the user, and recorded in the audit log.
 
 Secrets are encrypted at rest with an application key. Session cookies are HttpOnly and same-site. CORS, trusted-proxy use, and webhook handling are explicit configuration decisions. Webhook refreshes improve freshness; scheduled reconciliation remains the source-of-truth repair mechanism.
+
+Daily briefings are immutable, timezone-aware snapshots rather than a live query that can change underneath the user. They are generated from stored recommendation, library, and sync facts, then archived locally. Discord delivery is opt-in through a worker-only environment variable; each attempt has a local status so an external outage never loses the briefing or hides its delivery state.
 
 ## Growth path
 

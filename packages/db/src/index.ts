@@ -1,14 +1,22 @@
 export {
   beginSyncRun,
+  beginDiscordDailyBriefDelivery,
   beginRecommendationRun,
+  completeDiscordDailyBriefDelivery,
   completeRecommendationRun,
   completeSyncRun,
   createDatabase,
+  createDailyBrief,
+  failDiscordDailyBriefDelivery,
   failSyncRun,
   failRecommendationRun,
   getDatabaseStatus,
   getDashboardOverview,
+  getDailyBriefDelivery,
+  getDailyBriefForDate,
+  getLatestDailyBrief,
   getLibrarySyncSources,
+  getOwnerUserIds,
   getLatestRecommendations,
   getRecommendationCandidates,
   getSetupStatus,
@@ -19,10 +27,13 @@ export {
 } from './repository.js'
 export {
   LIBRARY_SYNC_QUEUE,
+  DAILY_BRIEF_QUEUE,
   PLAYLIST_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   reconciliationCron,
+  dailyBriefCron,
+  scheduleDailyBrief,
   scheduleLibraryReconciliation,
   startJobQueue,
 } from './jobs.js'
@@ -30,6 +41,11 @@ export type {
   Database,
   DashboardFavourite,
   DashboardOverview,
+  DailyBriefCard,
+  DailyBriefContent,
+  DailyBriefDelivery,
+  DailyBriefDeliveryStatus,
+  DailyBriefRecord,
   InitialSetup,
   InitialSetupResult,
   LibrarySyncSource,
@@ -42,5 +58,5 @@ export type {
   SetupStatusRecord,
   SyncProgress,
 } from './repository.js'
-export type { LibrarySyncJob, PlaylistSyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
+export type { DailyBriefJob, LibrarySyncJob, PlaylistSyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
 export * from './schema.js'

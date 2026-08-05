@@ -142,4 +142,14 @@ describe('dashboard', () => {
     expect(response.statusCode).toBe(401)
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
   })
+
+  it('requires a local session before exposing a daily briefing', async () => {
+    const response = await createServer().inject({
+      method: 'GET',
+      url: '/api/v1/daily-briefs/latest',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
 })

@@ -15,6 +15,7 @@
     "@musearr/core": "file:../../packages/core",
     "@musearr/db": "file:../../packages/db",
     "@musearr/intelligence": "file:../../packages/intelligence",
+    "@musearr/integrations": "file:../../packages/integrations",
     "pg-boss": "^12.26.2"
   }
 }

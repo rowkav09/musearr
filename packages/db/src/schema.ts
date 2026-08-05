@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -16,6 +17,7 @@ export const userRole = pgEnum('user_role', ['owner', 'member'])
 export const plexServerStatus = pgEnum('plex_server_status', ['connected', 'degraded', 'offline'])
 export const syncRunStatus = pgEnum('sync_run_status', ['queued', 'running', 'completed', 'failed', 'cancelled'])
 export const recommendationRunStatus = pgEnum('recommendation_run_status', ['running', 'completed', 'failed'])
+export const dailyBriefDeliveryStatus = pgEnum('daily_brief_delivery_status', ['pending', 'delivered', 'failed'])
 
 export const instances = pgTable('instances', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -273,6 +275,44 @@ export const recommendations = pgTable(
   (table) => [
     uniqueIndex('recommendations_run_rank_key').on(table.runId, table.rank),
     uniqueIndex('recommendations_run_track_key').on(table.runId, table.trackId),
+  ],
+)
+
+export const dailyBriefs = pgTable(
+  'daily_briefs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    briefDate: date('brief_date').notNull(),
+    timezone: text('timezone').notNull(),
+    algorithmVersion: text('algorithm_version').notNull(),
+    content: jsonb('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('daily_briefs_user_date_idx').on(table.userId, table.briefDate, table.createdAt)],
+)
+
+export const dailyBriefDeliveries = pgTable(
+  'daily_brief_deliveries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    dailyBriefId: uuid('daily_brief_id')
+      .notNull()
+      .references(() => dailyBriefs.id, { onDelete: 'cascade' }),
+    destination: text('destination').notNull(),
+    status: dailyBriefDeliveryStatus('status').notNull().default('pending'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    errorSummary: text('error_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('daily_brief_deliveries_brief_destination_key').on(table.dailyBriefId, table.destination),
+    index('daily_brief_deliveries_status_idx').on(table.status, table.updatedAt),
   ],
 )
 

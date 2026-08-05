@@ -4,7 +4,9 @@ export const LIBRARY_SYNC_QUEUE = 'library.sync'
 export const PLAYLIST_SYNC_QUEUE = 'playlist.sync'
 export const RECONCILIATION_QUEUE = 'library.reconcile'
 export const RECOMMENDATION_RUN_QUEUE = 'recommendation.run'
+export const DAILY_BRIEF_QUEUE = 'daily-brief.generate'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
+const DAILY_BRIEF_SCHEDULE_KEY = 'default'
 
 export type LibrarySyncJob = {
   librarySectionId: string
@@ -27,6 +29,11 @@ export type RecommendationRunJob = {
   trigger: 'manual' | 'scheduled'
 }
 
+export type DailyBriefJob = {
+  trigger: 'manual' | 'scheduled'
+  userId?: string
+}
+
 export function reconciliationCron(intervalMinutes: number): string {
   if (intervalMinutes === 1_440) {
     return '0 0 * * *'
@@ -40,6 +47,14 @@ export function reconciliationCron(intervalMinutes: number): string {
   throw new Error(`Unsupported reconciliation interval: ${intervalMinutes} minutes.`)
 }
 
+export function dailyBriefCron(time: string): string {
+  const match = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)$/.exec(time)
+  if (!match?.groups) {
+    throw new Error(`Unsupported daily briefing time: ${time}.`)
+  }
+  return `${Number(match.groups.minute)} ${Number(match.groups.hour)} * * *`
+}
+
 export async function scheduleLibraryReconciliation(
   jobQueue: Pick<PgBoss, 'schedule'>,
   intervalMinutes: number,
@@ -49,6 +64,19 @@ export async function scheduleLibraryReconciliation(
     reconciliationCron(intervalMinutes),
     { trigger: 'scheduled' },
     { key: RECONCILIATION_SCHEDULE_KEY, tz: 'UTC' },
+  )
+}
+
+export async function scheduleDailyBrief(
+  jobQueue: Pick<PgBoss, 'schedule'>,
+  time: string,
+  timezone: string,
+): Promise<void> {
+  await jobQueue.schedule(
+    DAILY_BRIEF_QUEUE,
+    dailyBriefCron(time),
+    { trigger: 'scheduled' },
+    { key: DAILY_BRIEF_SCHEDULE_KEY, tz: timezone },
   )
 }
 
@@ -86,6 +114,13 @@ export async function startJobQueue(
     retryBackoff: true,
     expireInSeconds: 300,
     retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(DAILY_BRIEF_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 60,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 30 * 24 * 60 * 60,
   })
   return boss
 }

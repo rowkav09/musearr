@@ -144,6 +144,38 @@ export type DashboardOverview = {
   dailyMix: LatestRecommendation[]
 }
 
+export type DailyBriefCard = {
+  kind: 'daily_mix' | 'favourite_artist' | 'favourite_genre' | 'library' | 'sync'
+  title: string
+  body: string
+}
+
+export type DailyBriefContent = {
+  headline: string
+  summary: string
+  cards: DailyBriefCard[]
+}
+
+export type DailyBriefDeliveryStatus = 'pending' | 'delivered' | 'failed'
+
+export type DailyBriefDelivery = {
+  status: DailyBriefDeliveryStatus
+  attemptCount: number
+  lastAttemptAt: string | null
+  deliveredAt: string | null
+  errorSummary: string | null
+}
+
+export type DailyBriefRecord = {
+  id: string
+  briefDate: string
+  timezone: string
+  algorithmVersion: string
+  content: DailyBriefContent
+  createdAt: string
+  discordDelivery: DailyBriefDelivery | null
+}
+
 export function createDatabase(databaseUrl: string) {
   return postgres(databaseUrl, {
     max: 10,
@@ -800,6 +832,163 @@ export async function getLatestRecommendations(
   }))
 }
 
+export async function getOwnerUserIds(database: Database): Promise<string[]> {
+  const rows = await database<Array<{ id: string }>>`
+    SELECT id
+    FROM users
+    WHERE role = 'owner' AND disabled_at IS NULL
+    ORDER BY created_at ASC
+  `
+  return rows.map((row) => row.id)
+}
+
+export async function getDailyBriefForDate(
+  database: Database,
+  userId: string,
+  briefDate: string,
+): Promise<DailyBriefRecord | null> {
+  const rows = await database<DailyBriefRow[]>`
+    SELECT
+      brief.id,
+      brief.brief_date,
+      brief.timezone,
+      brief.algorithm_version,
+      brief.content,
+      brief.created_at,
+      delivery.status AS delivery_status,
+      delivery.attempt_count AS delivery_attempt_count,
+      delivery.last_attempt_at AS delivery_last_attempt_at,
+      delivery.delivered_at AS delivery_delivered_at,
+      delivery.error_summary AS delivery_error_summary
+    FROM daily_briefs brief
+    LEFT JOIN daily_brief_deliveries delivery
+      ON delivery.daily_brief_id = brief.id AND delivery.destination = 'discord'
+    WHERE brief.user_id = ${userId} AND brief.brief_date = ${briefDate}::date
+    ORDER BY brief.created_at DESC
+    LIMIT 1
+  `
+  return rows[0] ? mapDailyBrief(rows[0]) : null
+}
+
+export async function getLatestDailyBrief(database: Database, userId: string): Promise<DailyBriefRecord | null> {
+  const rows = await database<DailyBriefRow[]>`
+    SELECT
+      brief.id,
+      brief.brief_date,
+      brief.timezone,
+      brief.algorithm_version,
+      brief.content,
+      brief.created_at,
+      delivery.status AS delivery_status,
+      delivery.attempt_count AS delivery_attempt_count,
+      delivery.last_attempt_at AS delivery_last_attempt_at,
+      delivery.delivered_at AS delivery_delivered_at,
+      delivery.error_summary AS delivery_error_summary
+    FROM daily_briefs brief
+    LEFT JOIN daily_brief_deliveries delivery
+      ON delivery.daily_brief_id = brief.id AND delivery.destination = 'discord'
+    WHERE brief.user_id = ${userId}
+    ORDER BY brief.brief_date DESC, brief.created_at DESC
+    LIMIT 1
+  `
+  return rows[0] ? mapDailyBrief(rows[0]) : null
+}
+
+export async function createDailyBrief(
+  database: Database,
+  input: {
+    userId: string
+    briefDate: string
+    timezone: string
+    algorithmVersion: string
+    content: DailyBriefContent
+  },
+): Promise<DailyBriefRecord> {
+  const rows = await database<DailyBriefRow[]>`
+    INSERT INTO daily_briefs (user_id, brief_date, timezone, algorithm_version, content)
+    VALUES (
+      ${input.userId},
+      ${input.briefDate}::date,
+      ${input.timezone},
+      ${input.algorithmVersion},
+      ${JSON.stringify(input.content)}::jsonb
+    )
+    ON CONFLICT (user_id, brief_date, algorithm_version) DO NOTHING
+    RETURNING id, brief_date, timezone, algorithm_version, content, created_at,
+      NULL::daily_brief_delivery_status AS delivery_status,
+      NULL::integer AS delivery_attempt_count,
+      NULL::timestamptz AS delivery_last_attempt_at,
+      NULL::timestamptz AS delivery_delivered_at,
+      NULL::text AS delivery_error_summary
+  `
+  if (rows[0]) {
+    return mapDailyBrief(rows[0])
+  }
+
+  const existing = await getDailyBriefForDate(database, input.userId, input.briefDate)
+  if (!existing) {
+    throw new Error('Daily briefing could not be created.')
+  }
+  return existing
+}
+
+export async function getDailyBriefDelivery(
+  database: Database,
+  briefId: string,
+): Promise<DailyBriefDelivery | null> {
+  const rows = await database<DailyBriefDeliveryRow[]>`
+    SELECT status, attempt_count, last_attempt_at, delivered_at, error_summary
+    FROM daily_brief_deliveries
+    WHERE daily_brief_id = ${briefId} AND destination = 'discord'
+    LIMIT 1
+  `
+  return rows[0] ? mapDailyBriefDelivery(rows[0]) : null
+}
+
+export async function beginDiscordDailyBriefDelivery(
+  database: Database,
+  briefId: string,
+): Promise<DailyBriefDelivery> {
+  const rows = await database<DailyBriefDeliveryRow[]>`
+    INSERT INTO daily_brief_deliveries (
+      daily_brief_id, destination, status, attempt_count, last_attempt_at, error_summary
+    )
+    VALUES (${briefId}, 'discord', 'pending', 1, NOW(), NULL)
+    ON CONFLICT (daily_brief_id, destination) DO UPDATE
+    SET status = 'pending',
+      attempt_count = daily_brief_deliveries.attempt_count + 1,
+      last_attempt_at = NOW(),
+      error_summary = NULL,
+      updated_at = NOW()
+    RETURNING status, attempt_count, last_attempt_at, delivered_at, error_summary
+  `
+  const delivery = rows[0]
+  if (!delivery) {
+    throw new Error('Daily briefing delivery could not be prepared.')
+  }
+  return mapDailyBriefDelivery(delivery)
+}
+
+export async function completeDiscordDailyBriefDelivery(database: Database, briefId: string): Promise<void> {
+  await database`
+    UPDATE daily_brief_deliveries
+    SET status = 'delivered', delivered_at = NOW(), error_summary = NULL, updated_at = NOW()
+    WHERE daily_brief_id = ${briefId} AND destination = 'discord'
+  `
+}
+
+export async function failDiscordDailyBriefDelivery(
+  database: Database,
+  briefId: string,
+  errorSummary: string,
+): Promise<void> {
+  await database`
+    UPDATE daily_brief_deliveries
+    SET status = 'failed', error_summary = ${errorSummary.slice(0, 1_000)}, updated_at = NOW()
+    WHERE daily_brief_id = ${briefId} AND destination = 'discord'
+  `
+}
+
 export async function getDashboardOverview(database: Database, userId: string): Promise<DashboardOverview> {
   const [libraryRows, listeningRows, artistRows, genreRows, syncRows, dailyMix] = await Promise.all([
     database<
@@ -919,6 +1108,58 @@ export async function getDashboardOverview(database: Database, userId: string): 
 
 function normaliseGenre(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+}
+
+type DailyBriefRow = {
+  id: string
+  brief_date: string | Date
+  timezone: string
+  algorithm_version: string
+  content: DailyBriefContent
+  created_at: Date | string
+  delivery_status: DailyBriefDeliveryStatus | null
+  delivery_attempt_count: number | string | null
+  delivery_last_attempt_at: Date | string | null
+  delivery_delivered_at: Date | string | null
+  delivery_error_summary: string | null
+}
+
+type DailyBriefDeliveryRow = {
+  status: DailyBriefDeliveryStatus
+  attempt_count: number | string
+  last_attempt_at: Date | string | null
+  delivered_at: Date | string | null
+  error_summary: string | null
+}
+
+function mapDailyBrief(row: DailyBriefRow): DailyBriefRecord {
+  return {
+    id: row.id,
+    briefDate: row.brief_date instanceof Date ? row.brief_date.toISOString().slice(0, 10) : row.brief_date,
+    timezone: row.timezone,
+    algorithmVersion: row.algorithm_version,
+    content: row.content,
+    createdAt: serialiseTimestamp(row.created_at) ?? new Date(0).toISOString(),
+    discordDelivery: row.delivery_status
+      ? mapDailyBriefDelivery({
+          status: row.delivery_status,
+          attempt_count: row.delivery_attempt_count ?? 0,
+          last_attempt_at: row.delivery_last_attempt_at,
+          delivered_at: row.delivery_delivered_at,
+          error_summary: row.delivery_error_summary,
+        })
+      : null,
+  }
+}
+
+function mapDailyBriefDelivery(row: DailyBriefDeliveryRow): DailyBriefDelivery {
+  return {
+    status: row.status,
+    attemptCount: numericValue(row.attempt_count),
+    lastAttemptAt: serialiseTimestamp(row.last_attempt_at),
+    deliveredAt: serialiseTimestamp(row.delivered_at),
+    errorSummary: row.error_summary,
+  }
 }
 
 function serialiseTimestamp(value: Date | string | null): string | null {

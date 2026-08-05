@@ -27,6 +27,44 @@ const ReconciliationIntervalSchema = z
     message: `Choose one of: ${reconciliationIntervals.join(', ')} minutes.`,
   })
 
+const IanaTimeZoneSchema = z.string().trim().min(1).superRefine((value, context) => {
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: value }).format()
+  } catch {
+    context.addIssue({ code: 'custom', message: 'Use a valid IANA timezone, such as Europe/London.' })
+  }
+})
+
+const DailyBriefTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a 24-hour time such as 08:00.')
+
+const DiscordWebhookUrlSchema = z.string().url().superRefine((value, context) => {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return
+  }
+  const isDiscordHost = url.hostname === 'discord.com' || url.hostname.endsWith('.discord.com')
+  if (
+    url.protocol !== 'https:' ||
+    !isDiscordHost ||
+    !url.pathname.startsWith('/api/webhooks/') ||
+    url.username ||
+    url.password ||
+    url.search
+  ) {
+    context.addIssue({ code: 'custom', message: 'Use an HTTPS Discord webhook URL.' })
+  }
+})
+
+const OptionalPlexWebhookSecretSchema = z
+  .union([z.string().min(32).max(256), z.literal('').transform(() => undefined)])
+  .optional()
+
+const OptionalDiscordWebhookUrlSchema = z
+  .union([DiscordWebhookUrlSchema, z.literal('').transform(() => undefined)])
+  .optional()
+
 const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().url().default('postgresql://musearr:musearr@localhost:5432/musearr'),
@@ -35,7 +73,10 @@ const EnvironmentSchema = z.object({
   MUSEARR_WEB_ORIGIN: HttpOriginSchema.default('http://localhost:3000'),
   MUSEARR_TRUST_PROXY: EnvironmentBooleanSchema,
   MUSEARR_RECONCILIATION_INTERVAL_MINUTES: ReconciliationIntervalSchema.default(360),
-  MUSEARR_PLEX_WEBHOOK_SECRET: z.string().min(32).max(256).optional(),
+  MUSEARR_TIMEZONE: IanaTimeZoneSchema.default('UTC'),
+  MUSEARR_DAILY_BRIEF_TIME: DailyBriefTimeSchema.default('08:00'),
+  MUSEARR_DISCORD_WEBHOOK_URL: OptionalDiscordWebhookUrlSchema,
+  MUSEARR_PLEX_WEBHOOK_SECRET: OptionalPlexWebhookSecretSchema,
   MUSEARR_ENCRYPTION_KEY: z.string().min(1).optional(),
   MUSEARR_SESSION_SECRET: z.string().min(32).optional(),
 })

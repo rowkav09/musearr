@@ -10,6 +10,7 @@ This repository contains the first production-minded vertical slice of the produ
 - a Fastify API with health, setup-status, Plex connection-test, setup completion, and local-owner session endpoints;
 - encrypted-at-rest Plex token storage and a forward-only PostgreSQL migration runner;
 - a PostgreSQL-backed durable queue and independently deployable worker process that imports selected Plex music libraries and user playlists in bounded pages; and
+- a timezone-aware, deterministic daily briefing that is stored locally before optional Discord webhook delivery, with a visible delivery status and retry-safe job boundary; and
 - Docker Compose, multi-stage non-root Docker images, and a GitHub Actions release workflow for a local PostgreSQL, API, worker, and web runtime.
 
 The [product and architecture blueprint](docs/ARCHITECTURE.md) explains the intended MVP and the decisions that keep it extensible without compromising privacy.
@@ -37,7 +38,9 @@ docker compose -f docker-compose.release.yml up -d
 
 The release compose file defaults to this repository's GitHub Container Registry namespace. Set `MUSEARR_IMAGE_REPOSITORY` when deploying images from a fork or a mirrored registry. `docker-bake.hcl` is included for maintainers building all four images locally with Docker Buildx.
 
-The worker currently mirrors artists, albums, tracks, track genres, ratings, play counts, and last-played values that Plex returns on track pages. It records a `sync_runs` row with page progress, keeps each upsert idempotent, and schedules full reconciliation every six hours by default. Optional Plex webhooks can trigger a narrow selected-library refresh when configured with `MUSEARR_PLEX_WEBHOOK_SECRET`; scheduled reconciliation remains the correctness backstop. Musearr never writes back metadata or audio files in this foundation.
+The worker currently mirrors artists, albums, tracks, track genres, ratings, play counts, and last-played values that Plex returns on track pages. It records a `sync_runs` row with page progress, keeps each upsert idempotent, and schedules full reconciliation every six hours by default. Optional Plex webhooks can trigger a narrow selected-library refresh when configured with `MUSEARR_PLEX_WEBHOOK_SECRET`; scheduled reconciliation remains the correctness backstop.
+
+Musearr also prepares one daily briefing at `MUSEARR_DAILY_BRIEF_TIME` in `MUSEARR_TIMEZONE` (default: `08:00 UTC`). A briefing is an immutable snapshot built from locally stored recommendation, library, and sync facts; it appears in the dashboard even when no delivery integration is configured. Set `MUSEARR_DISCORD_WEBHOOK_URL` to opt into Discord delivery. The webhook is used only by the worker, is never exposed to the browser, and failed delivery remains visible in the local archive for a retrying worker job. Musearr never writes back metadata or audio files in this foundation.
 
 ## Contributing and support
 

@@ -8,6 +8,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { getConfig, type MusearrConfig } from '@musearr/config'
 import {
   CompleteSetupRequestSchema,
+  DailyBriefResponseSchema,
   DashboardOverviewSchema,
   PlexConnectionRequestSchema,
   PlexWebhookPayloadSchema,
@@ -20,10 +21,12 @@ import {
 import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
   createDatabase,
+  DAILY_BRIEF_QUEUE,
   getDashboardOverview,
   getDatabaseStatus,
   getLibrarySyncSources,
   getLatestRecommendations,
+  getLatestDailyBrief,
   getSetupStatus,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
@@ -521,6 +524,37 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
     const recommendations = await getLatestRecommendations(database, request.user.sub, parsed.data.kind)
     return reply.send({ recommendations })
+  })
+
+  app.post('/api/v1/daily-briefs/generate', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to generate a daily briefing.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can generate a daily briefing.')
+    }
+    if (!jobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+
+    const jobId = await jobQueue.send(
+      DAILY_BRIEF_QUEUE,
+      { trigger: 'manual', userId: request.user.sub },
+      { singletonKey: request.user.sub, singletonSeconds: 60 },
+    )
+    return reply.code(202).send({ jobId })
+  })
+
+  app.get('/api/v1/daily-briefs/latest', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your daily briefing.')
+    }
+
+    return reply.send(DailyBriefResponseSchema.parse({ brief: await getLatestDailyBrief(database, request.user.sub) }))
   })
 
   app.get('/api/v1/dashboard', async (request, reply) => {

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { reconciliationCron, scheduleLibraryReconciliation } from './jobs.js'
+import {
+  dailyBriefCron,
+  reconciliationCron,
+  scheduleDailyBrief,
+  scheduleLibraryReconciliation,
+} from './jobs.js'
 
 describe('reconciliation scheduling', () => {
   it.each([
@@ -25,6 +30,27 @@ describe('reconciliation scheduling', () => {
       '0 */6 * * *',
       { trigger: 'scheduled' },
       { key: 'default', tz: 'UTC' },
+    )
+  })
+})
+
+describe('daily briefing scheduling', () => {
+  it('maps a configured local time to a durable cron schedule', () => {
+    expect(dailyBriefCron('08:00')).toBe('0 8 * * *')
+    expect(dailyBriefCron('19:45')).toBe('45 19 * * *')
+    expect(() => dailyBriefCron('8:00')).toThrow('Unsupported daily briefing time')
+  })
+
+  it('upserts one timezone-aware schedule for daily briefing generation', async () => {
+    const schedule = vi.fn().mockResolvedValue(undefined)
+
+    await scheduleDailyBrief({ schedule }, '07:30', 'Europe/London')
+
+    expect(schedule).toHaveBeenCalledWith(
+      'daily-brief.generate',
+      '30 7 * * *',
+      { trigger: 'scheduled' },
+      { key: 'default', tz: 'Europe/London' },
     )
   })
 })

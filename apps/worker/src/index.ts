@@ -2,15 +2,19 @@ import { getConfig } from '@musearr/config'
 import { MUSEARR_VERSION } from '@musearr/core'
 import {
   createDatabase,
+  DAILY_BRIEF_QUEUE,
   getDatabaseStatus,
+  getOwnerUserIds,
   getLibrarySyncSources,
   LIBRARY_SYNC_QUEUE,
   PLAYLIST_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   scheduleLibraryReconciliation,
+  scheduleDailyBrief,
   startJobQueue,
   type LibrarySyncJob,
+  type DailyBriefJob,
   type PlaylistSyncJob,
   type RecommendationRunJob,
   type ReconciliationJob,
@@ -19,6 +23,7 @@ import type { PgBoss } from 'pg-boss'
 import { syncPlexLibrary } from './jobs/library-sync.js'
 import { syncPlexPlaylists } from './jobs/playlist-sync.js'
 import { generateRecommendationRun } from './jobs/recommendation-run.js'
+import { generateDailyBrief } from './jobs/daily-brief.js'
 
 const config = getConfig()
 const database = createDatabase(config.DATABASE_URL)
@@ -114,10 +119,33 @@ async function start(): Promise<void> {
     },
   )
 
+  await jobQueue.work<DailyBriefJob>(
+    DAILY_BRIEF_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const userIds = job.data.userId ? [job.data.userId] : await getOwnerUserIds(database)
+        for (const userId of userIds) {
+          const result = await generateDailyBrief(database, userId, {
+            timezone: config.MUSEARR_TIMEZONE,
+            ...(config.MUSEARR_DISCORD_WEBHOOK_URL
+              ? { discordWebhookUrl: config.MUSEARR_DISCORD_WEBHOOK_URL }
+              : {}),
+          })
+          console.info(
+            { jobId: job.id, userId, created: result.created, delivered: result.delivered },
+            'Daily briefing completed',
+          )
+        }
+      }
+    },
+  )
+
   await scheduleLibraryReconciliation(jobQueue, config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES)
+  await scheduleDailyBrief(jobQueue, config.MUSEARR_DAILY_BRIEF_TIME, config.MUSEARR_TIMEZONE)
 
   console.info(
-    `Musearr worker ${MUSEARR_VERSION} is ready for durable Plex sync jobs and ${config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES}-minute reconciliation.`,
+    `Musearr worker ${MUSEARR_VERSION} is ready for durable Plex sync jobs, ${config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES}-minute reconciliation, and daily briefings at ${config.MUSEARR_DAILY_BRIEF_TIME} ${config.MUSEARR_TIMEZONE}.`,
   )
 }
 

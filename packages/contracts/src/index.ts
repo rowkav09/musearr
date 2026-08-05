@@ -139,6 +139,38 @@ export const DashboardOverviewSchema = z.object({
   dailyMix: z.array(DashboardRecommendationSchema),
 })
 
+export const DailyBriefCardSchema = z.object({
+  kind: z.enum(['daily_mix', 'favourite_artist', 'favourite_genre', 'library', 'sync']),
+  title: z.string().min(1).max(280),
+  body: z.string().min(1).max(2_000),
+})
+
+export const DailyBriefDeliverySchema = z.object({
+  status: z.enum(['pending', 'delivered', 'failed']),
+  attemptCount: z.number().int().nonnegative(),
+  lastAttemptAt: z.string().datetime().nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  errorSummary: z.string().nullable(),
+})
+
+export const DailyBriefSchema = z.object({
+  id: z.string().uuid(),
+  briefDate: z.string().date(),
+  timezone: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  content: z.object({
+    headline: z.string().min(1).max(280),
+    summary: z.string().min(1).max(2_000),
+    cards: z.array(DailyBriefCardSchema).min(1).max(4),
+  }),
+  createdAt: z.string().datetime(),
+  discordDelivery: DailyBriefDeliverySchema.nullable(),
+})
+
+export const DailyBriefResponseSchema = z.object({
+  brief: DailyBriefSchema.nullable(),
+})
+
 export type SetupPhase = z.infer<typeof SetupPhaseSchema>
 export type SystemStatus = z.infer<typeof SystemStatusSchema>
 export type SetupStatus = z.infer<typeof SetupStatusSchema>
@@ -151,3 +183,5 @@ export type QueueLibrarySyncRequest = z.infer<typeof QueueLibrarySyncRequestSche
 export type RecommendationKind = z.infer<typeof RecommendationKindSchema>
 export type QueueRecommendationRunRequest = z.infer<typeof QueueRecommendationRunRequestSchema>
 export type DashboardOverview = z.infer<typeof DashboardOverviewSchema>
+export type DailyBrief = z.infer<typeof DailyBriefSchema>
+export type DailyBriefResponse = z.infer<typeof DailyBriefResponseSchema>

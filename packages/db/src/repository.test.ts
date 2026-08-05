@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDashboardOverview, type Database } from './repository.js'
+import { getDashboardOverview, getLatestDailyBrief, type Database } from './repository.js'
 
 describe('getDashboardOverview', () => {
   it('returns a stable, locally-derived dashboard summary with persisted Daily Mix reasons', async () => {
@@ -127,6 +127,50 @@ describe('getDashboardOverview', () => {
           summary: 'You have not played Slowdive in 284 days.',
         },
       ],
+    })
+  })
+})
+
+describe('getLatestDailyBrief', () => {
+  it('returns the immutable briefing snapshot with observable Discord delivery state', async () => {
+    const database = (async () => [
+      {
+        id: 'c6fef068-8fc1-4347-b0a6-a1eea8e92a5a',
+        brief_date: '2026-08-05',
+        timezone: 'Europe/London',
+        algorithm_version: '2026-08-05.1',
+        content: {
+          headline: 'A thoughtful place to begin.',
+          summary: 'Today’s Daily Mix starts with Alison by Slowdive.',
+          cards: [{ kind: 'daily_mix', title: 'Start with Alison', body: 'Slowdive — a rediscovery.' }],
+        },
+        created_at: new Date('2026-08-05T07:30:00.000Z'),
+        delivery_status: 'delivered',
+        delivery_attempt_count: '1',
+        delivery_last_attempt_at: new Date('2026-08-05T07:30:01.000Z'),
+        delivery_delivered_at: new Date('2026-08-05T07:30:02.000Z'),
+        delivery_error_summary: null,
+      },
+    ]) as unknown as Database
+
+    await expect(getLatestDailyBrief(database, '723afeb4-f660-42ef-8963-f4a42ecbb9e2')).resolves.toEqual({
+      id: 'c6fef068-8fc1-4347-b0a6-a1eea8e92a5a',
+      briefDate: '2026-08-05',
+      timezone: 'Europe/London',
+      algorithmVersion: '2026-08-05.1',
+      content: {
+        headline: 'A thoughtful place to begin.',
+        summary: 'Today’s Daily Mix starts with Alison by Slowdive.',
+        cards: [{ kind: 'daily_mix', title: 'Start with Alison', body: 'Slowdive — a rediscovery.' }],
+      },
+      createdAt: '2026-08-05T07:30:00.000Z',
+      discordDelivery: {
+        status: 'delivered',
+        attemptCount: 1,
+        lastAttemptAt: '2026-08-05T07:30:01.000Z',
+        deliveredAt: '2026-08-05T07:30:02.000Z',
+        errorSummary: null,
+      },
     })
   })
 })

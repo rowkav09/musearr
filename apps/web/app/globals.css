@@ -114,6 +114,16 @@ button { cursor: pointer; }
 .favourite-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: #4f474d; font-size: 13px; }
 .favourite-list small { flex: 0 0 auto; color: #8a8086; font-size: 11px; }
 
+.daily-brief-card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }
+.daily-brief-card__intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 26px 28px; border-bottom: 1px solid #eee8e0; background: linear-gradient(120deg, #f7eee3, #fbf9f4); }
+.daily-brief-card h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 500; letter-spacing: -1px; }
+.daily-brief-card__intro p { max-width: 610px; margin: 9px 0 0; color: #685f65; font-size: 13px; line-height: 1.55; }
+.delivery-state { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; background: #eee7dd; color: #6c615c; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.delivery-state--delivered { background: #e9f1ed; color: #3b7460; }.delivery-state--failed { background: #fff0e9; color: #a85444; }.delivery-state--pending { background: #fff6df; color: #8a6c28; }
+.daily-brief-card__items { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.daily-brief-item { min-height: 178px; padding: 23px 25px; border-right: 1px solid #eee8e0; }.daily-brief-item:last-child { border-right: 0; }
+.daily-brief-item__kind { color: #a08178; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }.daily-brief-item h3 { margin-top: 13px; font-size: 18px; line-height: 1.15; }.daily-brief-item p { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
 .login-shell { display: grid; grid-template-rows: auto 1fr; }
 .login-card { width: min(100%, 470px); align-self: center; justify-self: center; margin: 48px 20px 92px; padding: clamp(28px, 5vw, 50px); border: 1px solid #e3d9cf; border-radius: 20px; background: rgba(255,253,249,.84); box-shadow: 0 22px 70px rgba(75, 55, 59, .1); }
 .login-card h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(35px, 4vw, 49px); font-weight: 500; letter-spacing: -2px; line-height: 1.02; }
@@ -134,4 +144,5 @@ button { cursor: pointer; }
   .recommendation-row p { grid-column: 2; }
   .dashboard-split { margin-top: 40px; }
   .insight-card { min-height: 0; }
+  .daily-brief-card__intro { display: grid; padding: 23px 21px; }.daily-brief-card__intro h3 { font-size: 23px; }.daily-brief-card__items { grid-template-columns: 1fr; }.daily-brief-item { min-height: 0; border-right: 0; border-bottom: 1px solid #eee8e0; }.daily-brief-item:last-child { border-bottom: 0; }
 }

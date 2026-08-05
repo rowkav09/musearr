@@ -39,6 +39,29 @@ type DashboardOverview = {
   dailyMix: Recommendation[]
 }
 
+type DailyBrief = {
+  id: string
+  briefDate: string
+  timezone: string
+  content: {
+    headline: string
+    summary: string
+    cards: Array<{
+      kind: 'daily_mix' | 'favourite_artist' | 'favourite_genre' | 'library' | 'sync'
+      title: string
+      body: string
+    }>
+  }
+  createdAt: string
+  discordDelivery: {
+    status: 'pending' | 'delivered' | 'failed'
+    attemptCount: number
+    lastAttemptAt: string | null
+    deliveredAt: string | null
+    errorSummary: string | null
+  } | null
+}
+
 type ViewState = 'loading' | 'ready' | 'unconfigured' | 'signed_out' | 'unavailable'
 
 const startingMixes = [
@@ -61,20 +84,31 @@ const startingMixes = [
 
 export function DashboardHome() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
+  const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null)
   const [viewState, setViewState] = useState<ViewState>('loading')
   const [generationState, setGenerationState] = useState<'idle' | 'queueing' | 'queued' | 'failed'>('idle')
+  const [briefGenerationState, setBriefGenerationState] = useState<'idle' | 'queueing' | 'queued' | 'failed'>('idle')
 
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadDashboard() {
       try {
-        const response = await fetch('/api/v1/dashboard', {
+        const dashboardRequest = fetch('/api/v1/dashboard', {
           signal: controller.signal,
         })
+        const briefRequest = fetch('/api/v1/daily-briefs/latest', {
+          signal: controller.signal,
+        }).catch(() => null)
+        const response = await dashboardRequest
         if (response.ok) {
           setOverview((await response.json()) as DashboardOverview)
           setViewState('ready')
+          const briefResponse = await briefRequest
+          if (briefResponse?.ok) {
+            const payload = (await briefResponse.json()) as { brief: DailyBrief | null }
+            setDailyBrief(payload.brief)
+          }
           return
         }
         if (response.status !== 401) {
@@ -115,8 +149,30 @@ export function DashboardHome() {
     }
   }
 
+  async function generateDailyBrief() {
+    setBriefGenerationState('queueing')
+    try {
+      const response = await fetch('/api/v1/daily-briefs/generate', { method: 'POST' })
+      if (!response.ok) {
+        throw new Error('Musearr could not queue a daily briefing.')
+      }
+      setBriefGenerationState('queued')
+    } catch {
+      setBriefGenerationState('failed')
+    }
+  }
+
   if (viewState === 'ready' && overview) {
-    return <ListeningDashboard overview={overview} generationState={generationState} onGenerate={generateDailyMix} />
+    return (
+      <ListeningDashboard
+        overview={overview}
+        dailyBrief={dailyBrief}
+        generationState={generationState}
+        briefGenerationState={briefGenerationState}
+        onGenerate={generateDailyMix}
+        onGenerateBrief={generateDailyBrief}
+      />
+    )
   }
 
   return <StartingDashboard state={viewState} />
@@ -180,12 +236,18 @@ function StartingDashboard({ state }: { state: ViewState }) {
 
 function ListeningDashboard({
   overview,
+  dailyBrief,
   generationState,
+  briefGenerationState,
   onGenerate,
+  onGenerateBrief,
 }: {
   overview: DashboardOverview
+  dailyBrief: DailyBrief | null
   generationState: 'idle' | 'queueing' | 'queued' | 'failed'
+  briefGenerationState: 'idle' | 'queueing' | 'queued' | 'failed'
   onGenerate: () => void
+  onGenerateBrief: () => void
 }) {
   const dailyMix = overview.dailyMix.slice(0, 5)
   const hasMix = dailyMix.length > 0
@@ -295,6 +357,12 @@ function ListeningDashboard({
         )}
       </section>
 
+      <DailyBriefPanel
+        brief={dailyBrief}
+        generationState={briefGenerationState}
+        onGenerate={onGenerateBrief}
+      />
+
       <section className="dashboard-split" aria-label="Favourite artists, genres, and sync status">
         <InsightCard
           eyebrow="FAVOURITE ARTISTS"
@@ -321,6 +389,64 @@ function ListeningDashboard({
         </article>
       </section>
     </>
+  )
+}
+
+function DailyBriefPanel({
+  brief,
+  generationState,
+  onGenerate,
+}: {
+  brief: DailyBrief | null
+  generationState: 'idle' | 'queueing' | 'queued' | 'failed'
+  onGenerate: () => void
+}) {
+  return (
+    <section className="section-block" aria-labelledby="daily-brief-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">DAILY INTELLIGENCE</p>
+          <h2 id="daily-brief-title">Your private morning note</h2>
+        </div>
+        {brief ? <span className="quiet-label">Prepared {formatDate(brief.createdAt)}</span> : null}
+      </div>
+      {brief ? (
+        <article className="daily-brief-card">
+          <div className="daily-brief-card__intro">
+            <div>
+              <h3>{brief.content.headline}</h3>
+              <p>{brief.content.summary}</p>
+            </div>
+            <span className={`delivery-state delivery-state--${brief.discordDelivery?.status ?? 'local'}`}>
+              {deliveryLabel(brief.discordDelivery)}
+            </span>
+          </div>
+          <div className="daily-brief-card__items">
+            {brief.content.cards.map((card) => (
+              <article className="daily-brief-item" key={`${card.kind}-${card.title}`}>
+                <span className="daily-brief-item__kind">{briefCardLabel(card.kind)}</span>
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </article>
+            ))}
+          </div>
+        </article>
+      ) : (
+        <div className="empty-intelligence">
+          <strong>Your first daily briefing is ready to be made.</strong>
+          <span>It will be saved locally before any optional Discord delivery, using only the facts in your Plex mirror.</span>
+          <button className="secondary-button" disabled={generationState === 'queueing'} onClick={onGenerate} type="button">
+            {generationState === 'queueing'
+              ? 'Preparing your briefing…'
+              : generationState === 'queued'
+                ? 'Daily briefing queued'
+                : 'Create today’s briefing'}
+          </button>
+          {generationState === 'failed' ? <span>Could not queue the briefing. Try again shortly.</span> : null}
+          {generationState === 'queued' ? <span>The local worker is preparing it now; refresh this page in a moment.</span> : null}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -414,5 +540,27 @@ function syncHeading(status: DashboardOverview['sync']['status']): string {
       return 'Sync was cancelled'
     case 'not_started':
       return 'First sync is waiting'
+  }
+}
+
+function deliveryLabel(delivery: DailyBrief['discordDelivery']): string {
+  if (!delivery) return 'Saved locally'
+  if (delivery.status === 'delivered') return 'Discord delivered'
+  if (delivery.status === 'failed') return 'Discord needs attention'
+  return 'Discord delivery pending'
+}
+
+function briefCardLabel(kind: DailyBrief['content']['cards'][number]['kind']): string {
+  switch (kind) {
+    case 'daily_mix':
+      return 'START HERE'
+    case 'favourite_artist':
+      return 'FAVOURITE ARTIST'
+    case 'favourite_genre':
+      return 'FAVOURITE GENRE'
+    case 'library':
+      return 'YOUR LIBRARY'
+    case 'sync':
+      return 'SYSTEM STATUS'
   }
 }
