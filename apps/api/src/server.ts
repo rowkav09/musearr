@@ -8,6 +8,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { getConfig, type MusearrConfig } from '@musearr/config'
 import {
   CompleteSetupRequestSchema,
+  DashboardOverviewSchema,
   PlexConnectionRequestSchema,
   PlexWebhookPayloadSchema,
   QueueLibrarySyncRequestSchema,
@@ -19,6 +20,7 @@ import {
 import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
   createDatabase,
+  getDashboardOverview,
   getDatabaseStatus,
   getLibrarySyncSources,
   getLatestRecommendations,
@@ -519,6 +521,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
     const recommendations = await getLatestRecommendations(database, request.user.sub, parsed.data.kind)
     return reply.send({ recommendations })
+  })
+
+  app.get('/api/v1/dashboard', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your music dashboard.')
+    }
+
+    const overview = await getDashboardOverview(database, request.user.sub)
+    return reply.send(DashboardOverviewSchema.parse(overview))
   })
 
   if (ownsDatabase) {

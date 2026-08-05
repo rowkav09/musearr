@@ -7,6 +7,7 @@ export {
   failSyncRun,
   failRecommendationRun,
   getDatabaseStatus,
+  getDashboardOverview,
   getLibrarySyncSources,
   getLatestRecommendations,
   getRecommendationCandidates,
@@ -27,6 +28,8 @@ export {
 } from './jobs.js'
 export type {
   Database,
+  DashboardFavourite,
+  DashboardOverview,
   InitialSetup,
   InitialSetupResult,
   LibrarySyncSource,

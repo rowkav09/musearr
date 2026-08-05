@@ -92,6 +92,53 @@ export const RecommendationQuerySchema = z.object({
   kind: RecommendationKindSchema.optional(),
 })
 
+const DashboardFavouriteSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  playCount: z.number().nonnegative(),
+})
+
+const DashboardRecommendationSchema = z.object({
+  runId: z.string().uuid(),
+  kind: RecommendationKindSchema,
+  algorithmVersion: z.string(),
+  createdAt: z.string().datetime(),
+  trackId: z.string().uuid(),
+  trackTitle: z.string(),
+  artistName: z.string(),
+  albumTitle: z.string(),
+  rank: z.number().int().positive(),
+  score: z.number().min(0).max(1),
+  reasons: z.array(z.unknown()),
+  summary: z.string(),
+})
+
+export const DashboardOverviewSchema = z.object({
+  library: z.object({
+    artistCount: z.number().int().nonnegative(),
+    albumCount: z.number().int().nonnegative(),
+    trackCount: z.number().int().nonnegative(),
+    totalDurationMs: z.number().nonnegative(),
+    newestAddedAt: z.string().datetime().nullable(),
+  }),
+  listening: z.object({
+    totalPlayCount: z.number().nonnegative(),
+    playedTrackCount: z.number().int().nonnegative(),
+    ratedTrackCount: z.number().int().nonnegative(),
+    lastPlayedAt: z.string().datetime().nullable(),
+  }),
+  favourites: z.object({
+    artists: z.array(DashboardFavouriteSchema),
+    genres: z.array(DashboardFavouriteSchema),
+  }),
+  sync: z.object({
+    status: z.enum(['not_started', 'queued', 'running', 'completed', 'failed', 'cancelled']),
+    lastCompletedAt: z.string().datetime().nullable(),
+    errorSummary: z.string().nullable(),
+  }),
+  dailyMix: z.array(DashboardRecommendationSchema),
+})
+
 export type SetupPhase = z.infer<typeof SetupPhaseSchema>
 export type SystemStatus = z.infer<typeof SystemStatusSchema>
 export type SetupStatus = z.infer<typeof SetupStatusSchema>
@@ -103,3 +150,4 @@ export type CompleteSetupRequest = z.infer<typeof CompleteSetupRequestSchema>
 export type QueueLibrarySyncRequest = z.infer<typeof QueueLibrarySyncRequestSchema>
 export type RecommendationKind = z.infer<typeof RecommendationKindSchema>
 export type QueueRecommendationRunRequest = z.infer<typeof QueueRecommendationRunRequestSchema>
+export type DashboardOverview = z.infer<typeof DashboardOverviewSchema>

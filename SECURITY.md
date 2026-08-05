@@ -4,7 +4,7 @@ Musearr handles highly personal listening history and Plex credentials. We treat
 
 ## Reporting a vulnerability
 
-Please use [GitHub's private security advisory form](https://github.com/rowkav09/musearr/security/advisories/new). Include a concise impact assessment, reproduction steps, and any relevant versions. Do not post the vulnerability, secrets, Plex tokens, or private server URLs in a public issue.
+Please use [GitHub's private security advisory form](../../security/advisories/new). Include a concise impact assessment, reproduction steps, and any relevant versions. Do not post the vulnerability, secrets, Plex tokens, or private server URLs in a public issue.
 
 We will acknowledge a valid report, investigate privately, and coordinate a fix before disclosure. Please give maintainers reasonable time to respond before sharing details publicly.
 

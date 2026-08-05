@@ -112,6 +112,38 @@ export type LatestRecommendation = {
   summary: string
 }
 
+export type DashboardFavourite = {
+  id: string
+  name: string
+  playCount: number
+}
+
+export type DashboardOverview = {
+  library: {
+    artistCount: number
+    albumCount: number
+    trackCount: number
+    totalDurationMs: number
+    newestAddedAt: string | null
+  }
+  listening: {
+    totalPlayCount: number
+    playedTrackCount: number
+    ratedTrackCount: number
+    lastPlayedAt: string | null
+  }
+  favourites: {
+    artists: DashboardFavourite[]
+    genres: DashboardFavourite[]
+  }
+  sync: {
+    status: 'not_started' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+    lastCompletedAt: string | null
+    errorSummary: string | null
+  }
+  dailyMix: LatestRecommendation[]
+}
+
 export function createDatabase(databaseUrl: string) {
   return postgres(databaseUrl, {
     max: 10,
@@ -768,6 +800,123 @@ export async function getLatestRecommendations(
   }))
 }
 
+export async function getDashboardOverview(database: Database, userId: string): Promise<DashboardOverview> {
+  const [libraryRows, listeningRows, artistRows, genreRows, syncRows, dailyMix] = await Promise.all([
+    database<
+      Array<{
+        artist_count: number | string
+        album_count: number | string
+        track_count: number | string
+        total_duration_ms: number | string
+        newest_added_at: Date | string | null
+      }>
+    >`
+      SELECT
+        COUNT(DISTINCT artist.id)::integer AS artist_count,
+        COUNT(DISTINCT album.id)::integer AS album_count,
+        COUNT(track.id)::integer AS track_count,
+        COALESCE(SUM(track.duration_ms), 0)::bigint AS total_duration_ms,
+        MAX(track.added_at) AS newest_added_at
+      FROM tracks track
+      JOIN albums album ON album.id = track.album_id
+      JOIN artists artist ON artist.id = album.artist_id
+    `,
+    database<
+      Array<{
+        total_play_count: number | string
+        played_track_count: number | string
+        rated_track_count: number | string
+        last_played_at: Date | string | null
+      }>
+    >`
+      SELECT
+        COALESCE(SUM(play_count), 0)::bigint AS total_play_count,
+        COUNT(*) FILTER (WHERE play_count > 0)::integer AS played_track_count,
+        COUNT(*) FILTER (WHERE rating IS NOT NULL)::integer AS rated_track_count,
+        MAX(last_played_at) AS last_played_at
+      FROM user_item_state
+      WHERE user_id = ${userId} AND entity_type = 'track'
+    `,
+    database<Array<{ id: string; name: string; play_count: number | string }>>`
+      SELECT artist.id, artist.name, COALESCE(SUM(state.play_count), 0)::bigint AS play_count
+      FROM user_item_state state
+      JOIN tracks track ON track.id = state.entity_id
+      JOIN albums album ON album.id = track.album_id
+      JOIN artists artist ON artist.id = album.artist_id
+      WHERE state.user_id = ${userId} AND state.entity_type = 'track'
+      GROUP BY artist.id, artist.name
+      HAVING COALESCE(SUM(state.play_count), 0) > 0
+      ORDER BY play_count DESC, artist.name ASC
+      LIMIT 5
+    `,
+    database<Array<{ id: string; name: string; play_count: number | string }>>`
+      SELECT genre.id, genre.display_name AS name, COALESCE(SUM(state.play_count), 0)::bigint AS play_count
+      FROM user_item_state state
+      JOIN item_genres item_genre
+        ON item_genre.entity_type = 'track' AND item_genre.entity_id = state.entity_id
+      JOIN genres genre ON genre.id = item_genre.genre_id
+      WHERE state.user_id = ${userId} AND state.entity_type = 'track'
+      GROUP BY genre.id, genre.display_name
+      HAVING COALESCE(SUM(state.play_count), 0) > 0
+      ORDER BY play_count DESC, genre.display_name ASC
+      LIMIT 5
+    `,
+    database<
+      Array<{
+        status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+        finished_at: Date | string | null
+        error_summary: string | null
+      }>
+    >`
+      SELECT status, finished_at, error_summary
+      FROM sync_runs
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    getLatestRecommendations(database, userId, 'daily_mix'),
+  ])
+
+  const library = libraryRows[0]
+  const listening = listeningRows[0]
+  const sync = syncRows[0]
+
+  return {
+    library: {
+      artistCount: numericValue(library?.artist_count),
+      albumCount: numericValue(library?.album_count),
+      trackCount: numericValue(library?.track_count),
+      totalDurationMs: numericValue(library?.total_duration_ms),
+      newestAddedAt: serialiseTimestamp(library?.newest_added_at ?? null),
+    },
+    listening: {
+      totalPlayCount: numericValue(listening?.total_play_count),
+      playedTrackCount: numericValue(listening?.played_track_count),
+      ratedTrackCount: numericValue(listening?.rated_track_count),
+      lastPlayedAt: serialiseTimestamp(listening?.last_played_at ?? null),
+    },
+    favourites: {
+      artists: artistRows.map((artist) => ({
+        id: artist.id,
+        name: artist.name,
+        playCount: numericValue(artist.play_count),
+      })),
+      genres: genreRows.map((genre) => ({
+        id: genre.id,
+        name: genre.name,
+        playCount: numericValue(genre.play_count),
+      })),
+    },
+    sync: sync
+      ? {
+          status: sync.status,
+          lastCompletedAt: sync.status === 'completed' ? serialiseTimestamp(sync.finished_at) : null,
+          errorSummary: sync.error_summary,
+        }
+      : { status: 'not_started', lastCompletedAt: null, errorSummary: null },
+    dailyMix,
+  }
+}
+
 function normaliseGenre(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
 }
@@ -781,4 +930,9 @@ function serialiseTimestamp(value: Date | string | null): string | null {
   }
   const timestamp = Date.parse(value)
   return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString()
+}
+
+function numericValue(value: number | string | null | undefined): number {
+  const numeric = Number(value ?? 0)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
 }

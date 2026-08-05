@@ -131,3 +131,15 @@ describe('browser mutation protections', () => {
     expect(response.headers['set-cookie']).toContain('SameSite=Lax')
   })
 })
+
+describe('dashboard', () => {
+  it('requires a local session before exposing listening data', async () => {
+    const response = await createServer().inject({
+      method: 'GET',
+      url: '/api/v1/dashboard',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
+})
