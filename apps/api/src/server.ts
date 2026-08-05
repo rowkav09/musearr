@@ -40,6 +40,7 @@ declare module '@fastify/jwt' {
 type ServerOptions = {
   config?: MusearrConfig
   database?: Database
+  startJobQueue?: boolean
 }
 
 const SESSION_COOKIE = 'musearr_session'
@@ -73,15 +74,37 @@ function configurationForSetup(config: MusearrConfig): string | null {
   return config.MUSEARR_ENCRYPTION_KEY ?? null
 }
 
+function sessionCookieOptions(request: FastifyReply['request']) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: request.protocol === 'https',
+    path: '/',
+  }
+}
+
 function setSession(reply: FastifyReply, user: { id: string; role: 'owner' | 'member' }): void {
   const token = reply.server.jwt.sign({ sub: user.id, role: user.role })
   reply.setCookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: reply.request.protocol === 'https',
-    path: '/',
+    ...sessionCookieOptions(reply.request),
     maxAge: 60 * 60 * 24 * 30,
   })
+}
+
+function isSafeMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+}
+
+function isAllowedBrowserMutation(requestOrigin: string | undefined, webOrigin: string): boolean {
+  if (!requestOrigin) {
+    return true
+  }
+
+  try {
+    return new URL(requestOrigin).origin === webOrigin
+  } catch {
+    return false
+  }
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
@@ -90,6 +113,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const ownsDatabase = !options.database
   let jobQueue: PgBoss | null = null
   const app = Fastify({
+    trustProxy: config.MUSEARR_TRUST_PROXY,
     logger: {
       level: config.NODE_ENV === 'production' ? 'info' : 'debug',
       redact: {
@@ -117,8 +141,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
   app.register(swaggerUi, { routePrefix: '/documentation' })
 
+  app.addHook('onRequest', async (request, reply) => {
+    if (isSafeMethod(request.method)) {
+      return
+    }
+    if (!isAllowedBrowserMutation(request.headers.origin, config.MUSEARR_WEB_ORIGIN)) {
+      sendProblem(reply, 403, 'CROSS_ORIGIN_REQUEST', 'Use Musearr from its configured web address.')
+      return
+    }
+  })
+
   app.addHook('onReady', async () => {
-    jobQueue = await startJobQueue(config.DATABASE_URL, (error) => app.log.error(error, 'Job queue error'))
+    if (options.startJobQueue !== false) {
+      jobQueue = await startJobQueue(config.DATABASE_URL, (error) => app.log.error(error, 'Job queue error'))
+    }
   })
 
   app.setErrorHandler((error, request, reply) => {
@@ -271,8 +307,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
   })
 
-  app.post('/api/v1/auth/logout', async (_request, reply) => {
-    reply.clearCookie(SESSION_COOKIE, { path: '/' })
+  app.post('/api/v1/auth/logout', async (request, reply) => {
+    reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(request))
     return reply.code(204).send()
   })
 
