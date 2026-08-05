@@ -1,0 +1,2 @@
+export const MUSEARR_VERSION = '0.1.0'
+export const MUSEARR_ALGORITHM_VERSION = '2026-08-05.1'

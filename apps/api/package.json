@@ -1,0 +1,27 @@
+{
+  "name": "@musearr/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/jwt": "^9.1.0",
+    "@fastify/swagger": "^9.5.1",
+    "@fastify/swagger-ui": "^5.2.3",
+    "@musearr/config": "file:../../packages/config",
+    "@musearr/contracts": "file:../../packages/contracts",
+    "@musearr/core": "file:../../packages/core",
+    "@musearr/db": "file:../../packages/db",
+    "@musearr/plex": "file:../../packages/plex",
+    "fastify": "^5.11.2",
+    "pg-boss": "^12.26.2"
+  }
+}

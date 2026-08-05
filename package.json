@@ -1,0 +1,34 @@
+{
+  "name": "musearr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The private music intelligence companion for Plex.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run lint --workspaces --if-present && npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=@musearr/api",
+    "dev:web": "npm run dev --workspace=@musearr/web --",
+    "dev:worker": "npm run dev --workspace=@musearr/worker",
+    "migrate": "npm run migrate --workspace=@musearr/db",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "eslint": "^9.35.0",
+    "prettier": "^3.6.2",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript-eslint": "^8.66.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

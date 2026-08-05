@@ -1,0 +1,20 @@
+{
+  "name": "@musearr/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@musearr/config": "file:../../packages/config",
+    "@musearr/core": "file:../../packages/core",
+    "@musearr/db": "file:../../packages/db",
+    "@musearr/intelligence": "file:../../packages/intelligence",
+    "pg-boss": "^12.26.2"
+  }
+}

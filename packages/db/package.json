@@ -1,0 +1,19 @@
+{
+  "name": "@musearr/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsup src/migrate.ts --format esm --target node22 --out-dir dist --sourcemap",
+    "migrate": "tsx src/migrate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.7",
+    "pg-boss": "^12.26.2",
+    "postgres": "^3.4.7"
+  }
+}
