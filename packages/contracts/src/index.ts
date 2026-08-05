@@ -76,12 +76,7 @@ export const QueueLibrarySyncRequestSchema = z.object({
   librarySectionId: z.string().uuid().optional(),
 })
 
-export const RecommendationKindSchema = z.enum([
-  'daily_mix',
-  'forgotten_favourites',
-  'hidden_gems',
-  'recently_added',
-])
+export const RecommendationKindSchema = z.enum(['daily_mix', 'forgotten_favourites', 'hidden_gems', 'recently_added'])
 
 export const QueueRecommendationRunRequestSchema = z.object({
   kind: RecommendationKindSchema,
@@ -171,6 +166,30 @@ export const DailyBriefResponseSchema = z.object({
   brief: DailyBriefSchema.nullable(),
 })
 
+export const ListeningInsightQuerySchema = z.object({
+  days: z.coerce.number().int().min(7).max(90).default(30),
+})
+
+const ListeningCoverageSchema = z.enum(['none', 'exact', 'observed', 'mixed'])
+
+export const ListeningInsightSummarySchema = z.object({
+  period: z.object({
+    startDate: z.string().date(),
+    endDate: z.string().date(),
+    timezone: z.string().min(1),
+  }),
+  playback: z.object({
+    reportedPlays: z.number().int().nonnegative(),
+    exactPlays: z.number().int().nonnegative(),
+    observedPlays: z.number().int().nonnegative(),
+    estimatedListenedMs: z.number().nonnegative(),
+    uniqueTracks: z.number().int().nonnegative(),
+    uniqueArtists: z.number().int().nonnegative(),
+    coverage: ListeningCoverageSchema,
+  }),
+  topArtists: z.array(DashboardFavouriteSchema),
+})
+
 export type SetupPhase = z.infer<typeof SetupPhaseSchema>
 export type SystemStatus = z.infer<typeof SystemStatusSchema>
 export type SetupStatus = z.infer<typeof SetupStatusSchema>
@@ -185,3 +204,4 @@ export type QueueRecommendationRunRequest = z.infer<typeof QueueRecommendationRu
 export type DashboardOverview = z.infer<typeof DashboardOverviewSchema>
 export type DailyBrief = z.infer<typeof DailyBriefSchema>
 export type DailyBriefResponse = z.infer<typeof DailyBriefResponseSchema>
+export type ListeningInsightSummary = z.infer<typeof ListeningInsightSummarySchema>

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { getDashboardOverview, getLatestDailyBrief, type Database } from './repository.js'
+import { describe, expect, it, vi } from 'vitest'
+import { getDashboardOverview, getLatestDailyBrief, getListeningInsightSummary, type Database } from './repository.js'
 
 describe('getDashboardOverview', () => {
   it('returns a stable, locally-derived dashboard summary with persisted Daily Mix reasons', async () => {
@@ -142,7 +142,13 @@ describe('getLatestDailyBrief', () => {
         content: {
           headline: 'A thoughtful place to begin.',
           summary: 'Today’s Daily Mix starts with Alison by Slowdive.',
-          cards: [{ kind: 'daily_mix', title: 'Start with Alison', body: 'Slowdive — a rediscovery.' }],
+          cards: [
+            {
+              kind: 'daily_mix',
+              title: 'Start with Alison',
+              body: 'Slowdive — a rediscovery.',
+            },
+          ],
         },
         created_at: new Date('2026-08-05T07:30:00.000Z'),
         delivery_status: 'delivered',
@@ -161,7 +167,13 @@ describe('getLatestDailyBrief', () => {
       content: {
         headline: 'A thoughtful place to begin.',
         summary: 'Today’s Daily Mix starts with Alison by Slowdive.',
-        cards: [{ kind: 'daily_mix', title: 'Start with Alison', body: 'Slowdive — a rediscovery.' }],
+        cards: [
+          {
+            kind: 'daily_mix',
+            title: 'Start with Alison',
+            body: 'Slowdive — a rediscovery.',
+          },
+        ],
       },
       createdAt: '2026-08-05T07:30:00.000Z',
       discordDelivery: {
@@ -172,5 +184,67 @@ describe('getLatestDailyBrief', () => {
         errorSummary: null,
       },
     })
+  })
+})
+
+describe('getListeningInsightSummary', () => {
+  it('keeps exact and observed playback provenance separate in a user-local period', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-05T23:30:00.000Z'))
+    try {
+      const database = (async (strings: TemplateStringsArray) => {
+        const query = strings.join(' ')
+        if (query.includes('SUM(track_rollup.reported_plays)')) {
+          return [
+            {
+              reported_plays: '12',
+              exact_plays: '7',
+              observed_plays: '5',
+              estimated_listened_ms: '2520000',
+              unique_tracks: '8',
+              unique_artists: '3',
+            },
+          ]
+        }
+        if (query.includes('FROM user_artist_rollups rollup')) {
+          return [
+            {
+              id: 'f9bbd5e7-bd67-4ae7-afc5-358f232b5b4b',
+              name: 'Slowdive',
+              play_count: '6',
+            },
+          ]
+        }
+        throw new Error(`Unexpected query: ${query}`)
+      }) as unknown as Database
+
+      await expect(
+        getListeningInsightSummary(database, '723afeb4-f660-42ef-8963-f4a42ecbb9e2', 'Europe/London', 7),
+      ).resolves.toEqual({
+        period: {
+          startDate: '2026-07-31',
+          endDate: '2026-08-06',
+          timezone: 'Europe/London',
+        },
+        playback: {
+          reportedPlays: 12,
+          exactPlays: 7,
+          observedPlays: 5,
+          estimatedListenedMs: 2_520_000,
+          uniqueTracks: 8,
+          uniqueArtists: 3,
+          coverage: 'mixed',
+        },
+        topArtists: [
+          {
+            id: 'f9bbd5e7-bd67-4ae7-afc5-358f232b5b4b',
+            name: 'Slowdive',
+            playCount: 6,
+          },
+        ],
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

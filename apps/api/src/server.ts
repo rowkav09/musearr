@@ -10,6 +10,8 @@ import {
   CompleteSetupRequestSchema,
   DailyBriefResponseSchema,
   DashboardOverviewSchema,
+  ListeningInsightQuerySchema,
+  ListeningInsightSummarySchema,
   PlexConnectionRequestSchema,
   PlexWebhookPayloadSchema,
   QueueLibrarySyncRequestSchema,
@@ -27,7 +29,9 @@ import {
   getLibrarySyncSources,
   getLatestRecommendations,
   getLatestDailyBrief,
+  getListeningInsightSummary,
   getSetupStatus,
+  getUserTimezone,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
   PLAYLIST_SYNC_QUEUE,
@@ -57,12 +61,7 @@ type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
 
 const SESSION_COOKIE = 'musearr_session'
 
-function sendProblem(
-  reply: FastifyReply,
-  status: number,
-  code: string,
-  detail: string,
-): FastifyReply {
+function sendProblem(reply: FastifyReply, status: number, code: string, detail: string): FastifyReply {
   return reply.code(status).send({
     type: `https://musearr.local/problems/${code.toLowerCase()}`,
     title: status >= 500 ? 'Musearr could not complete that request.' : 'Musearr needs your attention.',
@@ -214,7 +213,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       parts: 3,
     },
   })
-  app.register(jwt, { secret: sessionSecret(config), cookie: { cookieName: SESSION_COOKIE, signed: false } })
+  app.register(jwt, {
+    secret: sessionSecret(config),
+    cookie: { cookieName: SESSION_COOKIE, signed: false },
+  })
   app.register(swagger, {
     openapi: {
       info: { title: 'Musearr API', version: MUSEARR_VERSION },
@@ -243,7 +245,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (typeof error === 'object' && error !== null && 'validation' in error) {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'One or more fields need to be corrected.')
     }
-    return sendProblem(reply, 500, 'INTERNAL_ERROR', 'Try again shortly. The detailed error is available only in local logs.')
+    return sendProblem(
+      reply,
+      500,
+      'INTERNAL_ERROR',
+      'Try again shortly. The detailed error is available only in local logs.',
+    )
   })
 
   app.get('/api/v1/system/health', async (_request, reply) => {
@@ -312,8 +319,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const sources = await getLibrarySyncSources(database)
     const source = sources.find(
-      (candidate) =>
-        candidate.machineIdentifier === machineIdentifier && candidate.plexSectionId === plexSectionId,
+      (candidate) => candidate.machineIdentifier === machineIdentifier && candidate.plexSectionId === plexSectionId,
     )
     if (!source) {
       return reply.code(204).send()
@@ -329,7 +335,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       { singletonKey: source.librarySectionId, singletonSeconds: 60 },
     )
     request.log.info(
-      { event: parsed.data.event, librarySectionId: source.librarySectionId, jobId },
+      {
+        event: parsed.data.event,
+        librarySectionId: source.librarySectionId,
+        jobId,
+      },
       'Queued Plex webhook refresh',
     )
     return reply.code(204).send()
@@ -338,17 +348,32 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   app.post('/api/v1/setup/complete', async (request, reply) => {
     const parsed = CompleteSetupRequestSchema.safeParse(request.body)
     if (!parsed.success) {
-      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Review the Plex connection, local owner, and selected music libraries.')
+      return sendProblem(
+        reply,
+        400,
+        'INVALID_REQUEST',
+        'Review the Plex connection, local owner, and selected music libraries.',
+      )
     }
 
     const encryptionKey = configurationForSetup(config)
     if (!encryptionKey) {
-      return sendProblem(reply, 503, 'MISSING_ENCRYPTION_KEY', 'Set MUSEARR_ENCRYPTION_KEY before saving a Plex connection.')
+      return sendProblem(
+        reply,
+        503,
+        'MISSING_ENCRYPTION_KEY',
+        'Set MUSEARR_ENCRYPTION_KEY before saving a Plex connection.',
+      )
     }
 
     const existing = await getSetupStatus(database)
     if (existing.configured) {
-      return sendProblem(reply, 409, 'INSTANCE_ALREADY_CONFIGURED', 'This Musearr instance has already been configured.')
+      return sendProblem(
+        reply,
+        409,
+        'INSTANCE_ALREADY_CONFIGURED',
+        'This Musearr instance has already been configured.',
+      )
     }
 
     try {
@@ -375,20 +400,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       let initialJobIds: Array<string | null> = []
       if (readyJobQueue) {
         try {
-          initialJobIds = await Promise.all(
-            [
-              ...(await getLibrarySyncSources(database)).map((source) =>
-                readyJobQueue.send(LIBRARY_SYNC_QUEUE, {
-                  librarySectionId: source.librarySectionId,
-                  trigger: 'initial-setup',
-                }),
-              ),
-              readyJobQueue.send(PLAYLIST_SYNC_QUEUE, {
-                plexServerId: result.server.id,
+          initialJobIds = await Promise.all([
+            ...(await getLibrarySyncSources(database)).map((source) =>
+              readyJobQueue.send(LIBRARY_SYNC_QUEUE, {
+                librarySectionId: source.librarySectionId,
                 trigger: 'initial-setup',
               }),
-            ],
-          )
+            ),
+            readyJobQueue.send(PLAYLIST_SYNC_QUEUE, {
+              plexServerId: result.server.id,
+              trigger: 'initial-setup',
+            }),
+          ])
         } catch (queueError) {
           app.log.error(queueError, 'Initial Plex sync could not be queued after setup')
         }
@@ -396,7 +419,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       setSession(reply, result.user)
       return reply.code(201).send({
         user: { username: result.user.username, role: result.user.role },
-        plexServer: { name: result.server.name, machineIdentifier: result.server.machineIdentifier },
+        plexServer: {
+          name: result.server.name,
+          machineIdentifier: result.server.machineIdentifier,
+        },
         initialJobIds,
       })
     } catch (error) {
@@ -404,7 +430,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         return sendProblem(reply, error.code === 'UNAUTHENTICATED' ? 401 : 422, error.code, error.message)
       }
       if (error instanceof Error && error.message === 'INSTANCE_ALREADY_CONFIGURED') {
-        return sendProblem(reply, 409, 'INSTANCE_ALREADY_CONFIGURED', 'This Musearr instance has already been configured.')
+        return sendProblem(
+          reply,
+          409,
+          'INSTANCE_ALREADY_CONFIGURED',
+          'This Musearr instance has already been configured.',
+        )
       }
       throw error
     }
@@ -506,7 +537,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         limit: parsed.data.limit,
         trigger: 'manual',
       },
-      { singletonKey: `${request.user.sub}:${parsed.data.kind}`, singletonSeconds: 30 },
+      {
+        singletonKey: `${request.user.sub}:${parsed.data.kind}`,
+        singletonSeconds: 30,
+      },
     )
     return reply.code(202).send({ jobId, kind: parsed.data.kind })
   })
@@ -554,7 +588,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your daily briefing.')
     }
 
-    return reply.send(DailyBriefResponseSchema.parse({ brief: await getLatestDailyBrief(database, request.user.sub) }))
+    return reply.send(
+      DailyBriefResponseSchema.parse({
+        brief: await getLatestDailyBrief(database, request.user.sub),
+      }),
+    )
   })
 
   app.get('/api/v1/dashboard', async (request, reply) => {
@@ -566,6 +604,22 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const overview = await getDashboardOverview(database, request.user.sub)
     return reply.send(DashboardOverviewSchema.parse(overview))
+  })
+
+  app.get('/api/v1/insights/listening', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your listening insights.')
+    }
+
+    const parsed = ListeningInsightQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a period between 7 and 90 days.')
+    }
+    const timezone = await getUserTimezone(database, request.user.sub)
+    const insight = await getListeningInsightSummary(database, request.user.sub, timezone, parsed.data.days)
+    return reply.send(ListeningInsightSummarySchema.parse(insight))
   })
 
   if (ownsDatabase) {

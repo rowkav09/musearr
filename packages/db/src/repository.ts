@@ -1,4 +1,5 @@
-import postgres from 'postgres'
+import postgres, { type TransactionSql } from 'postgres'
+import { derivePlexListeningObservations } from './listening-observations.js'
 
 export type Database = ReturnType<typeof createDatabase>
 
@@ -35,6 +36,7 @@ export type LibrarySyncSource = {
   baseUrl: string
   tokenCiphertext: string
   ownerUserId: string
+  ownerTimezone: string
 }
 
 export type LibraryTrackUpsert = {
@@ -49,7 +51,12 @@ export type LibraryTrackUpsert = {
   lastPlayedAt: string | null
   rating: number | null
   artist: { plexRatingKey: string; name: string; thumbKey: string | null }
-  album: { plexRatingKey: string; title: string; year: number | null; thumbKey: string | null }
+  album: {
+    plexRatingKey: string
+    title: string
+    year: number | null
+    thumbKey: string | null
+  }
   genres: string[]
 }
 
@@ -69,11 +76,7 @@ export type PlexPlaylistUpsert = {
   }>
 }
 
-export type RecommendationKind =
-  | 'daily_mix'
-  | 'forgotten_favourites'
-  | 'hidden_gems'
-  | 'recently_added'
+export type RecommendationKind = 'daily_mix' | 'forgotten_favourites' | 'hidden_gems' | 'recently_added'
 
 export type RecommendationCandidateRecord = {
   trackId: string
@@ -144,6 +147,26 @@ export type DashboardOverview = {
   dailyMix: LatestRecommendation[]
 }
 
+export type ListeningCoverage = 'none' | 'exact' | 'observed' | 'mixed'
+
+export type ListeningInsightSummary = {
+  period: {
+    startDate: string
+    endDate: string
+    timezone: string
+  }
+  playback: {
+    reportedPlays: number
+    exactPlays: number
+    observedPlays: number
+    estimatedListenedMs: number
+    uniqueTracks: number
+    uniqueArtists: number
+    coverage: ListeningCoverage
+  }
+  topArtists: DashboardFavourite[]
+}
+
 export type DailyBriefCard = {
   kind: 'daily_mix' | 'favourite_artist' | 'favourite_genre' | 'library' | 'sync'
   title: string
@@ -196,7 +219,11 @@ export async function getDatabaseStatus(database: Database): Promise<'connected'
 
 export async function getSetupStatus(database: Database): Promise<SetupStatusRecord> {
   const servers = await database<
-    Array<{ name: string; machine_identifier: string; last_seen_at: string | null }>
+    Array<{
+      name: string
+      machine_identifier: string
+      last_seen_at: string | null
+    }>
   >`SELECT name, machine_identifier, last_seen_at FROM plex_servers ORDER BY created_at ASC LIMIT 1`
 
   const server = servers[0]
@@ -214,10 +241,7 @@ export async function getSetupStatus(database: Database): Promise<SetupStatusRec
   }
 }
 
-export async function insertInitialSetup(
-  database: Database,
-  setup: InitialSetup,
-): Promise<InitialSetupResult> {
+export async function insertInitialSetup(database: Database, setup: InitialSetup): Promise<InitialSetupResult> {
   return database.begin(async (transaction) => {
     const existing = await transaction`SELECT id FROM instances LIMIT 1`
     if (existing.length > 0) {
@@ -297,6 +321,7 @@ export async function getLibrarySyncSources(
       base_url: string
       token_ciphertext: string
       owner_user_id: string
+      owner_timezone: string
     }>
   >`
     SELECT
@@ -307,11 +332,12 @@ export async function getLibrarySyncSources(
       ps.name AS server_name,
       ps.base_url,
       ps.token_ciphertext,
-      owner_user.id AS owner_user_id
+      owner_user.id AS owner_user_id,
+      owner_user.timezone AS owner_timezone
     FROM library_sections ls
     JOIN plex_servers ps ON ps.id = ls.plex_server_id
     CROSS JOIN LATERAL (
-      SELECT id FROM users WHERE role = 'owner' AND disabled_at IS NULL ORDER BY created_at ASC LIMIT 1
+      SELECT id, timezone FROM users WHERE role = 'owner' AND disabled_at IS NULL ORDER BY created_at ASC LIMIT 1
     ) owner_user
     WHERE ls.selected = true
     AND (${librarySectionId ?? null}::uuid IS NULL OR ls.id = ${librarySectionId ?? null}::uuid)
@@ -327,6 +353,7 @@ export async function getLibrarySyncSources(
     baseUrl: source.base_url,
     tokenCiphertext: source.token_ciphertext,
     ownerUserId: source.owner_user_id,
+    ownerTimezone: source.owner_timezone,
   }))
 }
 
@@ -355,11 +382,7 @@ export async function beginSyncRun(
   return run.id
 }
 
-export async function updateSyncProgress(
-  database: Database,
-  runId: string,
-  progress: SyncProgress,
-): Promise<void> {
+export async function updateSyncProgress(database: Database, runId: string, progress: SyncProgress): Promise<void> {
   await database`
     UPDATE sync_runs
     SET cursor = ${JSON.stringify({ offset: progress.offset })}::jsonb,
@@ -403,6 +426,115 @@ export async function failSyncRun(database: Database, runId: string, errorSummar
     SET status = 'failed', finished_at = NOW(), error_summary = ${errorSummary.slice(0, 1_000)}
     WHERE id = ${runId}
   `
+}
+
+export async function rebuildListeningRollups(database: Database, userId: string, timezone: string): Promise<void> {
+  await database.begin(async (transaction) => {
+    // Multiple Plex libraries can sync concurrently. Serialize a user's derived views so that a
+    // complete rebuild is always applied atomically rather than interleaving delete/insert passes.
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0))`
+
+    await transaction`DELETE FROM user_track_rollups WHERE user_id = ${userId}`
+    await transaction`DELETE FROM user_artist_rollups WHERE user_id = ${userId}`
+
+    await transaction`
+      INSERT INTO user_track_rollups (
+        user_id, track_id, period_start, period_kind, reported_plays, exact_plays,
+        observed_plays, estimated_listened_ms, last_event_at
+      )
+      SELECT
+        event.user_id,
+        event.track_id,
+        (event.occurred_at AT TIME ZONE ${timezone})::date,
+        'day',
+        COALESCE(SUM(event.play_count_delta), 0)::integer,
+        COALESCE(SUM(event.play_count_delta) FILTER (WHERE event.time_precision = 'exact'), 0)::integer,
+        COALESCE(SUM(event.play_count_delta) FILTER (WHERE event.time_precision = 'observed'), 0)::integer,
+        COALESCE(SUM(COALESCE(event.duration_ms, 0)::bigint * event.play_count_delta), 0)::bigint,
+        MAX(event.occurred_at)
+      FROM listening_events event
+      WHERE event.user_id = ${userId}
+        AND event.event_type = 'play_count_delta'
+      GROUP BY event.user_id, event.track_id, (event.occurred_at AT TIME ZONE ${timezone})::date
+    `
+
+    await transaction`
+      INSERT INTO user_artist_rollups (
+        user_id, artist_id, period_start, period_kind, reported_plays, exact_plays,
+        observed_plays, estimated_listened_ms, unique_tracks, last_event_at
+      )
+      SELECT
+        event.user_id,
+        artist.id,
+        (event.occurred_at AT TIME ZONE ${timezone})::date,
+        'day',
+        COALESCE(SUM(event.play_count_delta), 0)::integer,
+        COALESCE(SUM(event.play_count_delta) FILTER (WHERE event.time_precision = 'exact'), 0)::integer,
+        COALESCE(SUM(event.play_count_delta) FILTER (WHERE event.time_precision = 'observed'), 0)::integer,
+        COALESCE(SUM(COALESCE(event.duration_ms, 0)::bigint * event.play_count_delta), 0)::bigint,
+        COUNT(DISTINCT event.track_id)::integer,
+        MAX(event.occurred_at)
+      FROM listening_events event
+      JOIN tracks track ON track.id = event.track_id
+      JOIN albums album ON album.id = track.album_id
+      JOIN artists artist ON artist.id = album.artist_id
+      WHERE event.user_id = ${userId}
+        AND event.event_type = 'play_count_delta'
+      GROUP BY event.user_id, artist.id, (event.occurred_at AT TIME ZONE ${timezone})::date
+    `
+  })
+}
+
+async function recordPlexListeningChanges(
+  transaction: TransactionSql,
+  input: {
+    source: LibrarySyncSource
+    trackId: string
+    track: LibraryTrackUpsert
+    previousState:
+      | {
+          play_count: number
+          last_played_at: Date | string | null
+          rating: number | string | null
+        }
+      | undefined
+  },
+): Promise<void> {
+  const observations = derivePlexListeningObservations({
+    source: input.source,
+    trackId: input.trackId,
+    track: input.track,
+    previousState: input.previousState
+      ? {
+          playCount: input.previousState.play_count,
+          lastPlayedAt: input.previousState.last_played_at,
+          rating: input.previousState.rating,
+        }
+      : undefined,
+    observedAt: new Date(),
+  })
+
+  for (const observation of observations) {
+    await transaction`
+      INSERT INTO listening_events (
+        user_id, track_id, plex_server_id, source_event_id, event_type, occurred_at,
+        play_count_delta, rating_before, rating_after, duration_ms, time_precision, metadata
+      ) VALUES (
+        ${input.source.ownerUserId},
+        ${input.trackId},
+        ${input.source.plexServerId},
+        ${observation.sourceEventId},
+        ${observation.eventType},
+        ${observation.occurredAt},
+        ${observation.playCountDelta},
+        ${observation.ratingBefore},
+        ${observation.ratingAfter},
+        ${observation.durationMs},
+        ${observation.timePrecision},
+        ${JSON.stringify(observation.metadata)}::jsonb
+      ) ON CONFLICT (source_event_id) DO NOTHING
+    `
+  }
 }
 
 export async function upsertLibraryTracks(
@@ -488,6 +620,22 @@ export async function upsertLibraryTracks(
         throw new Error('Failed to upsert a Plex track.')
       }
 
+      const previousStates = await transaction<
+        Array<{
+          play_count: number
+          last_played_at: Date | string | null
+          rating: number | string | null
+        }>
+      >`
+        SELECT play_count, last_played_at, rating
+        FROM user_item_state
+        WHERE user_id = ${source.ownerUserId}
+        AND entity_type = 'track'
+        AND entity_id = ${savedTrack.id}
+        FOR UPDATE
+      `
+      const previousState = previousStates[0]
+
       await transaction`
         INSERT INTO user_item_state (user_id, entity_type, entity_id, rating, play_count, last_played_at)
         VALUES (
@@ -502,8 +650,22 @@ export async function upsertLibraryTracks(
         SET rating = EXCLUDED.rating,
             play_count = EXCLUDED.play_count,
             last_played_at = EXCLUDED.last_played_at,
+            first_played_at = CASE
+              WHEN user_item_state.first_played_at IS NULL
+                AND EXCLUDED.play_count > user_item_state.play_count
+                AND EXCLUDED.last_played_at IS NOT NULL
+              THEN EXCLUDED.last_played_at
+              ELSE user_item_state.first_played_at
+            END,
             updated_at = NOW()
       `
+
+      await recordPlexListeningChanges(transaction, {
+        source,
+        trackId: savedTrack.id,
+        track,
+        previousState,
+      })
 
       await transaction`
         UPDATE playlist_items item
@@ -553,11 +715,7 @@ export async function upsertUserPlaylists(
 
   await database.begin(async (transaction) => {
     const trackRatingKeys = [
-      ...new Set(
-        playlists.flatMap((playlist) =>
-          playlist.items.map((item) => item.plexTrackRatingKey),
-        ),
-      ),
+      ...new Set(playlists.flatMap((playlist) => playlist.items.map((item) => item.plexTrackRatingKey))),
     ]
     const resolvedTracks =
       trackRatingKeys.length === 0
@@ -570,9 +728,7 @@ export async function upsertUserPlaylists(
             WHERE artist.plex_server_id = ${source.plexServerId}
             AND track.plex_rating_key = ANY(${trackRatingKeys}::text[])
           `
-    const trackIdsByPlexRatingKey = new Map(
-      resolvedTracks.map((track) => [track.plexRatingKey, track.id]),
-    )
+    const trackIdsByPlexRatingKey = new Map(resolvedTracks.map((track) => [track.plexRatingKey, track.id]))
 
     for (const playlist of playlists) {
       const savedPlaylists = await transaction<Array<{ id: string }>>`
@@ -754,11 +910,7 @@ export async function completeRecommendationRun(
   })
 }
 
-export async function failRecommendationRun(
-  database: Database,
-  runId: string,
-  errorSummary: string,
-): Promise<void> {
+export async function failRecommendationRun(database: Database, runId: string, errorSummary: string): Promise<void> {
   await database`
     UPDATE recommendation_runs
     SET status = 'failed', completed_at = NOW(), error_summary = ${errorSummary.slice(0, 1_000)}
@@ -840,6 +992,16 @@ export async function getOwnerUserIds(database: Database): Promise<string[]> {
     ORDER BY created_at ASC
   `
   return rows.map((row) => row.id)
+}
+
+export async function getUserTimezone(database: Database, userId: string): Promise<string> {
+  const rows = await database<Array<{ timezone: string }>>`
+    SELECT timezone
+    FROM users
+    WHERE id = ${userId} AND disabled_at IS NULL
+    LIMIT 1
+  `
+  return rows[0]?.timezone ?? 'UTC'
 }
 
 export async function getDailyBriefForDate(
@@ -932,10 +1094,7 @@ export async function createDailyBrief(
   return existing
 }
 
-export async function getDailyBriefDelivery(
-  database: Database,
-  briefId: string,
-): Promise<DailyBriefDelivery | null> {
+export async function getDailyBriefDelivery(database: Database, briefId: string): Promise<DailyBriefDelivery | null> {
   const rows = await database<DailyBriefDeliveryRow[]>`
     SELECT status, attempt_count, last_attempt_at, delivered_at, error_summary
     FROM daily_brief_deliveries
@@ -945,10 +1104,7 @@ export async function getDailyBriefDelivery(
   return rows[0] ? mapDailyBriefDelivery(rows[0]) : null
 }
 
-export async function beginDiscordDailyBriefDelivery(
-  database: Database,
-  briefId: string,
-): Promise<DailyBriefDelivery> {
+export async function beginDiscordDailyBriefDelivery(database: Database, briefId: string): Promise<DailyBriefDelivery> {
   const rows = await database<DailyBriefDeliveryRow[]>`
     INSERT INTO daily_brief_deliveries (
       daily_brief_id, destination, status, attempt_count, last_attempt_at, error_summary
@@ -1106,8 +1262,139 @@ export async function getDashboardOverview(database: Database, userId: string): 
   }
 }
 
+export async function getListeningInsightSummary(
+  database: Database,
+  userId: string,
+  timezone: string,
+  days = 30,
+): Promise<ListeningInsightSummary> {
+  const endDate = dateInTimezone(new Date(), timezone)
+  const startDate = subtractCalendarDays(endDate, days - 1)
+  const [totalsRows, artistRows] = await Promise.all([
+    database<
+      Array<{
+        reported_plays: number | string
+        exact_plays: number | string
+        observed_plays: number | string
+        estimated_listened_ms: number | string
+        unique_tracks: number | string
+        unique_artists: number | string
+      }>
+    >`
+      SELECT
+        COALESCE((
+          SELECT SUM(track_rollup.reported_plays)
+          FROM user_track_rollups track_rollup
+          WHERE track_rollup.user_id = ${userId}
+            AND track_rollup.period_kind = 'day'
+            AND track_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::bigint AS reported_plays,
+        COALESCE((
+          SELECT SUM(track_rollup.exact_plays)
+          FROM user_track_rollups track_rollup
+          WHERE track_rollup.user_id = ${userId}
+            AND track_rollup.period_kind = 'day'
+            AND track_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::bigint AS exact_plays,
+        COALESCE((
+          SELECT SUM(track_rollup.observed_plays)
+          FROM user_track_rollups track_rollup
+          WHERE track_rollup.user_id = ${userId}
+            AND track_rollup.period_kind = 'day'
+            AND track_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::bigint AS observed_plays,
+        COALESCE((
+          SELECT SUM(track_rollup.estimated_listened_ms)
+          FROM user_track_rollups track_rollup
+          WHERE track_rollup.user_id = ${userId}
+            AND track_rollup.period_kind = 'day'
+            AND track_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::bigint AS estimated_listened_ms,
+        COALESCE((
+          SELECT COUNT(DISTINCT track_rollup.track_id)
+          FROM user_track_rollups track_rollup
+          WHERE track_rollup.user_id = ${userId}
+            AND track_rollup.period_kind = 'day'
+            AND track_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::integer AS unique_tracks,
+        COALESCE((
+          SELECT COUNT(DISTINCT artist_rollup.artist_id)
+          FROM user_artist_rollups artist_rollup
+          WHERE artist_rollup.user_id = ${userId}
+            AND artist_rollup.period_kind = 'day'
+            AND artist_rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+        ), 0)::integer AS unique_artists
+    `,
+    database<Array<{ id: string; name: string; play_count: number | string }>>`
+      SELECT artist.id, artist.name, COALESCE(SUM(rollup.reported_plays), 0)::bigint AS play_count
+      FROM user_artist_rollups rollup
+      JOIN artists artist ON artist.id = rollup.artist_id
+      WHERE rollup.user_id = ${userId}
+        AND rollup.period_kind = 'day'
+        AND rollup.period_start BETWEEN ${startDate}::date AND ${endDate}::date
+      GROUP BY artist.id, artist.name
+      HAVING COALESCE(SUM(rollup.reported_plays), 0) > 0
+      ORDER BY play_count DESC, artist.name ASC
+      LIMIT 5
+    `,
+  ])
+
+  const totals = totalsRows[0]
+  const reportedPlays = numericValue(totals?.reported_plays)
+  const exactPlays = numericValue(totals?.exact_plays)
+  const observedPlays = numericValue(totals?.observed_plays)
+
+  return {
+    period: { startDate, endDate, timezone },
+    playback: {
+      reportedPlays,
+      exactPlays,
+      observedPlays,
+      estimatedListenedMs: numericValue(totals?.estimated_listened_ms),
+      uniqueTracks: numericValue(totals?.unique_tracks),
+      uniqueArtists: numericValue(totals?.unique_artists),
+      coverage: listeningCoverage(exactPlays, observedPlays),
+    },
+    topArtists: artistRows.map((artist) => ({
+      id: artist.id,
+      name: artist.name,
+      playCount: numericValue(artist.play_count),
+    })),
+  }
+}
+
 function normaliseGenre(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+}
+
+function dateInTimezone(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const byType = new Map(parts.map((part) => [part.type, part.value]))
+  return `${byType.get('year')}-${byType.get('month')}-${byType.get('day')}`
+}
+
+function subtractCalendarDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() - days)
+  return date.toISOString().slice(0, 10)
+}
+
+function listeningCoverage(exactPlays: number, observedPlays: number): ListeningCoverage {
+  if (exactPlays > 0 && observedPlays > 0) {
+    return 'mixed'
+  }
+  if (exactPlays > 0) {
+    return 'exact'
+  }
+  if (observedPlays > 0) {
+    return 'observed'
+  }
+  return 'none'
 }
 
 type DailyBriefRow = {

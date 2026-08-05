@@ -5,11 +5,13 @@ import { buildServer } from './server.js'
 
 const apps: ReturnType<typeof buildServer>[] = []
 
-function createServer(options: {
-  database?: Database
-  jobQueue?: { send: ReturnType<typeof vi.fn> }
-  webhookSecret?: string
-} = {}) {
+function createServer(
+  options: {
+    database?: Database
+    jobQueue?: { send: ReturnType<typeof vi.fn> }
+    webhookSecret?: string
+  } = {},
+) {
   const app = buildServer({
     config: getConfig({
       NODE_ENV: 'test',
@@ -98,7 +100,10 @@ describe('Plex webhooks', () => {
         librarySectionId: '9ad3649a-a78f-4aea-99dc-473c7c1c5501',
         trigger: 'webhook',
       },
-      { singletonKey: '9ad3649a-a78f-4aea-99dc-473c7c1c5501', singletonSeconds: 60 },
+      {
+        singletonKey: '9ad3649a-a78f-4aea-99dc-473c7c1c5501',
+        singletonSeconds: 60,
+      },
     )
   })
 })
@@ -147,6 +152,16 @@ describe('dashboard', () => {
     const response = await createServer().inject({
       method: 'GET',
       url: '/api/v1/daily-briefs/latest',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
+
+  it('requires a local session before exposing listening insights', async () => {
+    const response = await createServer().inject({
+      method: 'GET',
+      url: '/api/v1/insights/listening',
     })
 
     expect(response.statusCode).toBe(401)

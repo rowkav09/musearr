@@ -4,6 +4,7 @@ import {
   completeSyncRun,
   failSyncRun,
   getLibrarySyncSources,
+  rebuildListeningRollups,
   updateSyncProgress,
   upsertLibraryTracks,
   type Database,
@@ -47,8 +48,12 @@ export async function syncPlexLibrary(
       }
     }
 
+    await rebuildListeningRollups(database, source.ownerUserId, source.ownerTimezone)
     await completeSyncRun(database, runId, source.librarySectionId, progress)
-    return { importedTracks: progress.importedTracks, skippedTracks: progress.skippedTracks }
+    return {
+      importedTracks: progress.importedTracks,
+      skippedTracks: progress.skippedTracks,
+    }
   } catch (error) {
     await failSyncRun(database, runId, error instanceof Error ? error.message : 'Unknown Plex sync error')
     throw error

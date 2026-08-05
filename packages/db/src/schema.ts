@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   index,
@@ -18,6 +19,13 @@ export const plexServerStatus = pgEnum('plex_server_status', ['connected', 'degr
 export const syncRunStatus = pgEnum('sync_run_status', ['queued', 'running', 'completed', 'failed', 'cancelled'])
 export const recommendationRunStatus = pgEnum('recommendation_run_status', ['running', 'completed', 'failed'])
 export const dailyBriefDeliveryStatus = pgEnum('daily_brief_delivery_status', ['pending', 'delivered', 'failed'])
+export const listeningEventType = pgEnum('listening_event_type', [
+  'aggregate_checkpoint',
+  'play_count_delta',
+  'rating_change',
+  'play_count_reset',
+])
+export const listeningEventPrecision = pgEnum('listening_event_precision', ['exact', 'observed', 'aggregate'])
 
 export const instances = pgTable('instances', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -74,9 +82,7 @@ export const librarySections = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [
-    uniqueIndex('library_sections_server_section_key').on(table.plexServerId, table.plexSectionId),
-  ],
+  (table) => [uniqueIndex('library_sections_server_section_key').on(table.plexServerId, table.plexSectionId)],
 )
 
 export const artists = pgTable(
@@ -154,7 +160,9 @@ export const itemGenres = pgTable(
     source: text('source').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('item_genres_unique_source').on(table.genreId, table.entityType, table.entityId, table.source)],
+  (table) => [
+    uniqueIndex('item_genres_unique_source').on(table.genreId, table.entityType, table.entityId, table.source),
+  ],
 )
 
 export const userItemState = pgTable(
@@ -173,6 +181,83 @@ export const userItemState = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [uniqueIndex('user_item_state_unique').on(table.userId, table.entityType, table.entityId)],
+)
+
+export const listeningEvents = pgTable(
+  'listening_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    trackId: uuid('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    plexServerId: uuid('plex_server_id')
+      .notNull()
+      .references(() => plexServers.id, { onDelete: 'cascade' }),
+    sourceEventId: text('source_event_id').notNull().unique(),
+    eventType: listeningEventType('event_type').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+    playCountDelta: integer('play_count_delta').notNull().default(0),
+    ratingBefore: numeric('rating_before', { precision: 4, scale: 1 }),
+    ratingAfter: numeric('rating_after', { precision: 4, scale: 1 }),
+    durationMs: integer('duration_ms'),
+    timePrecision: listeningEventPrecision('time_precision').notNull(),
+    metadata: jsonb('metadata').notNull().default({}),
+  },
+  (table) => [
+    index('listening_events_user_occurred_idx').on(table.userId, table.occurredAt),
+    index('listening_events_user_track_idx').on(table.userId, table.trackId, table.observedAt),
+  ],
+)
+
+export const userTrackRollups = pgTable(
+  'user_track_rollups',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    trackId: uuid('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    periodKind: text('period_kind').notNull().default('day'),
+    reportedPlays: integer('reported_plays').notNull().default(0),
+    exactPlays: integer('exact_plays').notNull().default(0),
+    observedPlays: integer('observed_plays').notNull().default(0),
+    estimatedListenedMs: bigint('estimated_listened_ms', { mode: 'number' }).notNull().default(0),
+    lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('user_track_rollups_key').on(table.userId, table.trackId, table.periodStart, table.periodKind),
+    index('user_track_rollups_user_period_idx').on(table.userId, table.periodStart),
+  ],
+)
+
+export const userArtistRollups = pgTable(
+  'user_artist_rollups',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    artistId: uuid('artist_id')
+      .notNull()
+      .references(() => artists.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    periodKind: text('period_kind').notNull().default('day'),
+    reportedPlays: integer('reported_plays').notNull().default(0),
+    exactPlays: integer('exact_plays').notNull().default(0),
+    observedPlays: integer('observed_plays').notNull().default(0),
+    estimatedListenedMs: bigint('estimated_listened_ms', { mode: 'number' }).notNull().default(0),
+    uniqueTracks: integer('unique_tracks').notNull().default(0),
+    lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('user_artist_rollups_key').on(table.userId, table.artistId, table.periodStart, table.periodKind),
+    index('user_artist_rollups_user_period_idx').on(table.userId, table.periodStart),
+  ],
 )
 
 export const playlists = pgTable(
@@ -205,7 +290,9 @@ export const playlistItems = pgTable(
       .references(() => playlists.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
     plexTrackRatingKey: text('plex_track_rating_key').notNull(),
-    trackId: uuid('track_id').references(() => tracks.id, { onDelete: 'set null' }),
+    trackId: uuid('track_id').references(() => tracks.id, {
+      onDelete: 'set null',
+    }),
     addedAt: timestamp('added_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
