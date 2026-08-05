@@ -25,6 +25,7 @@ import {
   getSetupStatus,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
+  PLAYLIST_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   startJobQueue,
   type Database,
@@ -370,12 +371,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       if (readyJobQueue) {
         try {
           initialJobIds = await Promise.all(
-            (await getLibrarySyncSources(database)).map((source) =>
-              readyJobQueue.send(LIBRARY_SYNC_QUEUE, {
-                librarySectionId: source.librarySectionId,
+            [
+              ...(await getLibrarySyncSources(database)).map((source) =>
+                readyJobQueue.send(LIBRARY_SYNC_QUEUE, {
+                  librarySectionId: source.librarySectionId,
+                  trigger: 'initial-setup',
+                }),
+              ),
+              readyJobQueue.send(PLAYLIST_SYNC_QUEUE, {
+                plexServerId: result.server.id,
                 trigger: 'initial-setup',
               }),
-            ),
+            ],
           )
         } catch (queueError) {
           app.log.error(queueError, 'Initial Plex sync could not be queued after setup')

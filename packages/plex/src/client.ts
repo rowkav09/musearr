@@ -52,6 +52,28 @@ type PlexTrackResponse = {
   }
 }
 
+type PlexPlaylistResponse = {
+  MediaContainer?: {
+    Metadata?: Array<{
+      ratingKey?: string | number
+      title?: string
+      playlistType?: string
+      updatedAt?: number
+    }>
+  }
+}
+
+type PlexPlaylistItemsResponse = {
+  MediaContainer?: {
+    size?: number
+    totalSize?: number
+    Metadata?: Array<{
+      ratingKey?: string | number
+      addedAt?: number
+    }>
+  }
+}
+
 export type PlexLibraryTrack = {
   plexRatingKey: string
   title: string
@@ -82,6 +104,25 @@ export type PlexTrackPage = {
   offset: number
   scanned: number
   items: PlexLibraryTrack[]
+  skipped: number
+}
+
+export type PlexPlaylist = {
+  plexRatingKey: string
+  title: string
+  revision: string | null
+}
+
+export type PlexPlaylistItem = {
+  plexTrackRatingKey: string
+  addedAt: string | null
+}
+
+export type PlexPlaylistItemPage = {
+  total: number
+  offset: number
+  scanned: number
+  items: PlexPlaylistItem[]
   skipped: number
 }
 
@@ -148,6 +189,45 @@ export class PlexClient {
       scanned: metadata.length,
       items: tracks,
       skipped: metadata.length - tracks.length,
+    }
+  }
+
+  async audioPlaylists(): Promise<PlexPlaylist[]> {
+    const payload = await this.request<PlexPlaylistResponse>('/playlists?playlistType=audio')
+    return (payload.MediaContainer?.Metadata ?? [])
+      .filter((playlist) => playlist.ratingKey !== undefined && playlist.title && playlist.playlistType === 'audio')
+      .map((playlist) => ({
+        plexRatingKey: String(playlist.ratingKey),
+        title: playlist.title as string,
+        revision: timestampOrNull(playlist.updatedAt),
+      }))
+  }
+
+  async playlistItems(playlistId: string, offset: number, size: number): Promise<PlexPlaylistItemPage> {
+    const start = Math.max(0, Math.floor(offset))
+    const pageSize = Math.min(500, Math.max(1, Math.floor(size)))
+    const payload = await this.request<PlexPlaylistItemsResponse>(
+      `/playlists/${encodeURIComponent(playlistId)}/items?X-Plex-Container-Start=${start}&X-Plex-Container-Size=${pageSize}`,
+    )
+    const metadata = payload.MediaContainer?.Metadata ?? []
+    const items = metadata.flatMap((item) => {
+      if (item.ratingKey === undefined) {
+        return []
+      }
+      return [
+        {
+          plexTrackRatingKey: String(item.ratingKey),
+          addedAt: timestampOrNull(item.addedAt),
+        },
+      ]
+    })
+
+    return {
+      total: payload.MediaContainer?.totalSize ?? items.length,
+      offset: start,
+      scanned: metadata.length,
+      items,
+      skipped: metadata.length - items.length,
     }
   }
 

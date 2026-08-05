@@ -18,7 +18,13 @@ RUN npm run build --workspace=@musearr/api && npm prune --omit=dev
 
 FROM node:24-alpine AS runner
 WORKDIR /app
+ARG VERSION=dev
+ARG REVISION=unknown
 ENV NODE_ENV=production
+LABEL org.opencontainers.image.title="Musearr API" \
+      org.opencontainers.image.description="Musearr's private Plex music intelligence API" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
 RUN addgroup --system --gid 1001 musearr && adduser --system --uid 1001 --ingroup musearr musearr
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist

@@ -165,12 +165,53 @@ export const userItemState = pgTable(
     entityId: uuid('entity_id').notNull(),
     rating: numeric('rating', { precision: 4, scale: 1 }),
     playCount: integer('play_count').notNull().default(0),
-    skipCount: integer('skip_count').notNull().default(0),
+    skipCount: integer('skip_count'),
     lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
     firstPlayedAt: timestamp('first_played_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [uniqueIndex('user_item_state_unique').on(table.userId, table.entityType, table.entityId)],
+)
+
+export const playlists = pgTable(
+  'playlists',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    plexServerId: uuid('plex_server_id')
+      .notNull()
+      .references(() => plexServers.id, { onDelete: 'cascade' }),
+    plexRatingKey: text('plex_rating_key').notNull(),
+    name: text('name').notNull(),
+    kind: text('kind').notNull().default('user'),
+    managedByMusearr: boolean('managed_by_musearr').notNull().default(false),
+    revision: text('revision'),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlists_server_rating_key').on(table.plexServerId, table.plexRatingKey),
+    index('playlists_server_sync_idx').on(table.plexServerId, table.lastSyncedAt),
+  ],
+)
+
+export const playlistItems = pgTable(
+  'playlist_items',
+  {
+    playlistId: uuid('playlist_id')
+      .notNull()
+      .references(() => playlists.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    plexTrackRatingKey: text('plex_track_rating_key').notNull(),
+    trackId: uuid('track_id').references(() => tracks.id, { onDelete: 'set null' }),
+    addedAt: timestamp('added_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlist_items_playlist_position').on(table.playlistId, table.position),
+    index('playlist_items_track_idx').on(table.trackId),
+    index('playlist_items_unresolved_idx').on(table.plexTrackRatingKey),
+  ],
 )
 
 export const syncRuns = pgTable(

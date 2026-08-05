@@ -62,4 +62,51 @@ describe('normalisePlexBaseUrl', () => {
       }),
     ])
   })
+
+  it('maps audio playlists and paged playlist items without assuming every item resolves', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            MediaContainer: {
+              Metadata: [
+                { ratingKey: 41, title: 'Long drives', playlistType: 'audio', updatedAt: 1_700_000_100 },
+                { ratingKey: 42, title: 'Video playlist', playlistType: 'video' },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            MediaContainer: {
+              totalSize: 2,
+              Metadata: [{ ratingKey: 17, addedAt: 1_700_000_000 }, { title: 'Unresolvable item' }],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+    vi.stubGlobal('fetch', fetch)
+
+    const client = new PlexClient('http://plex.local:32400', 'test-token')
+    await expect(client.audioPlaylists()).resolves.toEqual([
+      { plexRatingKey: '41', title: 'Long drives', revision: '2023-11-14T22:15:00.000Z' },
+    ])
+    await expect(client.playlistItems('41', 0, 200)).resolves.toEqual({
+      total: 2,
+      offset: 0,
+      scanned: 2,
+      skipped: 1,
+      items: [{ plexTrackRatingKey: '17', addedAt: '2023-11-14T22:13:20.000Z' }],
+    })
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://plex.local:32400/playlists/41/items?X-Plex-Container-Start=0&X-Plex-Container-Size=200',
+      expect.any(Object),
+    )
+  })
 })

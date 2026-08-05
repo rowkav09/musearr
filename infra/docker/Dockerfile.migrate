@@ -18,7 +18,13 @@ RUN npm run build --workspace=@musearr/db && npm prune --omit=dev
 
 FROM node:24-alpine AS runner
 WORKDIR /app
+ARG VERSION=dev
+ARG REVISION=unknown
 ENV NODE_ENV=production
+LABEL org.opencontainers.image.title="Musearr database migrations" \
+      org.opencontainers.image.description="Musearr's forward-only database migration runner" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
 RUN addgroup --system --gid 1001 musearr && adduser --system --uid 1001 --ingroup musearr musearr
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/db/dist ./packages/db/dist

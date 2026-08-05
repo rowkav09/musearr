@@ -1,6 +1,7 @@
 import { PgBoss } from 'pg-boss'
 
 export const LIBRARY_SYNC_QUEUE = 'library.sync'
+export const PLAYLIST_SYNC_QUEUE = 'playlist.sync'
 export const RECONCILIATION_QUEUE = 'library.reconcile'
 export const RECOMMENDATION_RUN_QUEUE = 'recommendation.run'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
@@ -12,6 +13,11 @@ export type LibrarySyncJob = {
 
 export type ReconciliationJob = {
   trigger: 'scheduled'
+}
+
+export type PlaylistSyncJob = {
+  plexServerId: string
+  trigger: 'initial-setup' | 'reconciliation'
 }
 
 export type RecommendationRunJob = {
@@ -54,6 +60,13 @@ export async function startJobQueue(
   boss.on('error', onError)
   await boss.start()
   await boss.createQueue(LIBRARY_SYNC_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 3_600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_SYNC_QUEUE, {
     retryLimit: 3,
     retryDelay: 30,
     retryBackoff: true,

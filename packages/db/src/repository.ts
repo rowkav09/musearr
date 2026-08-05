@@ -59,6 +59,16 @@ export type SyncProgress = {
   skippedTracks: number
 }
 
+export type PlexPlaylistUpsert = {
+  plexRatingKey: string
+  title: string
+  revision: string | null
+  items: Array<{
+    plexTrackRatingKey: string
+    addedAt: string | null
+  }>
+}
+
 export type RecommendationKind =
   | 'daily_mix'
   | 'forgotten_favourites'
@@ -432,6 +442,16 @@ export async function upsertLibraryTracks(
       `
 
       await transaction`
+        UPDATE playlist_items item
+        SET track_id = ${savedTrack.id}
+        FROM playlists playlist
+        WHERE playlist.id = item.playlist_id
+        AND playlist.plex_server_id = ${source.plexServerId}
+        AND item.plex_track_rating_key = ${track.plexRatingKey}
+        AND item.track_id IS NULL
+      `
+
+      await transaction`
         DELETE FROM item_genres
         WHERE entity_type = 'track' AND entity_id = ${savedTrack.id} AND source = 'plex'
       `
@@ -458,6 +478,111 @@ export async function upsertLibraryTracks(
       }
     }
   })
+}
+
+export async function upsertUserPlaylists(
+  database: Database,
+  source: LibrarySyncSource,
+  playlists: PlexPlaylistUpsert[],
+): Promise<{ importedPlaylists: number; unresolvedItems: number }> {
+  let unresolvedItems = 0
+
+  await database.begin(async (transaction) => {
+    const trackRatingKeys = [
+      ...new Set(
+        playlists.flatMap((playlist) =>
+          playlist.items.map((item) => item.plexTrackRatingKey),
+        ),
+      ),
+    ]
+    const resolvedTracks =
+      trackRatingKeys.length === 0
+        ? []
+        : await transaction<Array<{ id: string; plexRatingKey: string }>>`
+            SELECT track.id, track.plex_rating_key AS "plexRatingKey"
+            FROM tracks track
+            JOIN albums album ON album.id = track.album_id
+            JOIN artists artist ON artist.id = album.artist_id
+            WHERE artist.plex_server_id = ${source.plexServerId}
+            AND track.plex_rating_key = ANY(${trackRatingKeys}::text[])
+          `
+    const trackIdsByPlexRatingKey = new Map(
+      resolvedTracks.map((track) => [track.plexRatingKey, track.id]),
+    )
+
+    for (const playlist of playlists) {
+      const savedPlaylists = await transaction<Array<{ id: string }>>`
+        INSERT INTO playlists (
+          plex_server_id, plex_rating_key, name, kind, managed_by_musearr, revision, last_synced_at
+        ) VALUES (
+          ${source.plexServerId},
+          ${playlist.plexRatingKey},
+          ${playlist.title},
+          'user',
+          false,
+          ${playlist.revision},
+          NOW()
+        )
+        ON CONFLICT (plex_server_id, plex_rating_key) DO UPDATE
+        SET name = EXCLUDED.name,
+            kind = 'user',
+            revision = EXCLUDED.revision,
+            last_synced_at = NOW(),
+            updated_at = NOW()
+        RETURNING id
+      `
+      const savedPlaylist = savedPlaylists[0]
+      if (!savedPlaylist) {
+        throw new Error('Failed to upsert a Plex playlist.')
+      }
+
+      await transaction`DELETE FROM playlist_items WHERE playlist_id = ${savedPlaylist.id}`
+      const itemRows = playlist.items.map((item, position) => {
+        const trackId = trackIdsByPlexRatingKey.get(item.plexTrackRatingKey) ?? null
+        unresolvedItems += trackId ? 0 : 1
+        return {
+          playlist_id: savedPlaylist.id,
+          position,
+          plex_track_rating_key: item.plexTrackRatingKey,
+          track_id: trackId,
+          added_at: item.addedAt,
+        }
+      })
+      for (let start = 0; start < itemRows.length; start += 1_000) {
+        const batch = itemRows.slice(start, start + 1_000)
+        await transaction`
+          INSERT INTO playlist_items ${transaction(
+            batch,
+            'playlist_id',
+            'position',
+            'plex_track_rating_key',
+            'track_id',
+            'added_at',
+          )}
+        `
+      }
+    }
+
+    const playlistKeys = playlists.map((playlist) => playlist.plexRatingKey)
+    if (playlistKeys.length === 0) {
+      await transaction`
+        DELETE FROM playlists
+        WHERE plex_server_id = ${source.plexServerId}
+        AND kind = 'user'
+        AND managed_by_musearr = false
+      `
+    } else {
+      await transaction`
+        DELETE FROM playlists
+        WHERE plex_server_id = ${source.plexServerId}
+        AND kind = 'user'
+        AND managed_by_musearr = false
+        AND NOT (plex_rating_key = ANY(${playlistKeys}::text[]))
+      `
+    }
+  })
+
+  return { importedPlaylists: playlists.length, unresolvedItems }
 }
 
 export async function getRecommendationCandidates(

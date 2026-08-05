@@ -1,0 +1,91 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: musearr
+      POSTGRES_USER: musearr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-musearr}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U musearr -d musearr"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks: [app]
+
+  migrate:
+    image: ${MUSEARR_IMAGE_REPOSITORY:-ghcr.io/rowkav09}/musearr-migrate:${MUSEARR_IMAGE_VERSION:?Set MUSEARR_IMAGE_VERSION in .env}
+    environment:
+      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [app]
+    restart: "no"
+
+  api:
+    image: ${MUSEARR_IMAGE_REPOSITORY:-ghcr.io/rowkav09}/musearr-api:${MUSEARR_IMAGE_VERSION:?Set MUSEARR_IMAGE_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
+      MUSEARR_API_HOST: 0.0.0.0
+      MUSEARR_API_PORT: 4000
+      MUSEARR_WEB_ORIGIN: ${MUSEARR_WEB_ORIGIN:-http://localhost}
+      MUSEARR_TRUST_PROXY: "true"
+      MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
+      MUSEARR_SESSION_SECRET: ${MUSEARR_SESSION_SECRET:?Set MUSEARR_SESSION_SECRET in .env}
+      MUSEARR_PLEX_WEBHOOK_SECRET:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [app]
+
+  worker:
+    image: ${MUSEARR_IMAGE_REPOSITORY:-ghcr.io/rowkav09}/musearr-worker:${MUSEARR_IMAGE_VERSION:?Set MUSEARR_IMAGE_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
+      MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
+      MUSEARR_RECONCILIATION_INTERVAL_MINUTES: ${MUSEARR_RECONCILIATION_INTERVAL_MINUTES:-360}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [app]
+
+  web:
+    image: ${MUSEARR_IMAGE_REPOSITORY:-ghcr.io/rowkav09}/musearr-web:${MUSEARR_IMAGE_VERSION:?Set MUSEARR_IMAGE_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      MUSEARR_API_URL: http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [app, edge]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "${MUSEARR_PORT:-80}:80"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [edge]
+
+networks:
+  app:
+    internal: true
+  edge:
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

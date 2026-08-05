@@ -68,7 +68,7 @@ CREATE TABLE user_item_state (
   entity_id uuid NOT NULL,
   rating numeric(4,1),
   play_count integer NOT NULL DEFAULT 0,
-  skip_count integer NOT NULL DEFAULT 0,
+  skip_count integer,
   last_played_at timestamptz,
   first_played_at timestamptz,
   updated_at timestamptz NOT NULL DEFAULT NOW(),
