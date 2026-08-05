@@ -38,6 +38,29 @@ export const PlexConnectionResultSchema = z.object({
   musicLibraries: z.array(PlexLibrarySectionSchema),
 })
 
+const PlexWebhookSectionIdSchema = z
+  .union([z.string().trim().min(1).max(64), z.number().int().nonnegative()])
+  .transform(String)
+
+export const PlexWebhookPayloadSchema = z
+  .object({
+    event: z.string().trim().min(1).max(128),
+    Server: z
+      .object({
+        uuid: z.string().trim().min(1).max(256),
+      })
+      .passthrough()
+      .optional(),
+    Metadata: z
+      .object({
+        librarySectionID: PlexWebhookSectionIdSchema.optional(),
+        librarySectionType: z.string().trim().max(64).optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+
 export const CompleteSetupRequestSchema = PlexConnectionRequestSchema.extend({
   ownerUsername: z
     .string()
@@ -75,6 +98,7 @@ export type SetupStatus = z.infer<typeof SetupStatusSchema>
 export type PlexConnectionRequest = z.infer<typeof PlexConnectionRequestSchema>
 export type PlexLibrarySection = z.infer<typeof PlexLibrarySectionSchema>
 export type PlexConnectionResult = z.infer<typeof PlexConnectionResultSchema>
+export type PlexWebhookPayload = z.infer<typeof PlexWebhookPayloadSchema>
 export type CompleteSetupRequest = z.infer<typeof CompleteSetupRequestSchema>
 export type QueueLibrarySyncRequest = z.infer<typeof QueueLibrarySyncRequestSchema>
 export type RecommendationKind = z.infer<typeof RecommendationKindSchema>

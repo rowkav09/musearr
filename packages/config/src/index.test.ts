@@ -7,6 +7,7 @@ describe('getConfig', () => {
 
     expect(config.MUSEARR_WEB_ORIGIN).toBe('https://musearr.local')
     expect(config.MUSEARR_TRUST_PROXY).toBe(false)
+    expect(config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES).toBe(360)
   })
 
   it('accepts proxy trust only when it is explicitly enabled', () => {
@@ -17,5 +18,9 @@ describe('getConfig', () => {
 
   it('rejects a non-HTTP browser origin', () => {
     expect(() => getConfig({ MUSEARR_WEB_ORIGIN: 'file:///musearr' })).toThrow()
+  })
+
+  it('rejects an unsupported reconciliation interval', () => {
+    expect(() => getConfig({ MUSEARR_RECONCILIATION_INTERVAL_MINUTES: '45' })).toThrow()
   })
 })

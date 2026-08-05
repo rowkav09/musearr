@@ -3,11 +3,15 @@ import { MUSEARR_VERSION } from '@musearr/core'
 import {
   createDatabase,
   getDatabaseStatus,
+  getLibrarySyncSources,
   LIBRARY_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
+  RECONCILIATION_QUEUE,
+  scheduleLibraryReconciliation,
   startJobQueue,
   type LibrarySyncJob,
   type RecommendationRunJob,
+  type ReconciliationJob,
 } from '@musearr/db'
 import type { PgBoss } from 'pg-boss'
 import { syncPlexLibrary } from './jobs/library-sync.js'
@@ -31,10 +35,40 @@ async function start(): Promise<void> {
   })
   await jobQueue.work<LibrarySyncJob>(LIBRARY_SYNC_QUEUE, { batchSize: 1, localConcurrency: 1 }, async (jobs) => {
     for (const job of jobs) {
-      const result = await syncPlexLibrary(database, config.MUSEARR_ENCRYPTION_KEY, job.data.librarySectionId)
+      const result = await syncPlexLibrary(
+        database,
+        config.MUSEARR_ENCRYPTION_KEY,
+        job.data.librarySectionId,
+        job.data.trigger,
+      )
       console.info({ jobId: job.id, ...result }, 'Plex library sync completed')
     }
   })
+  await jobQueue.work<ReconciliationJob>(
+    RECONCILIATION_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const sources = await getLibrarySyncSources(database)
+        const jobIds = await Promise.all(
+          sources.map((source) =>
+            jobQueue!.send(
+              LIBRARY_SYNC_QUEUE,
+              { librarySectionId: source.librarySectionId, trigger: 'reconciliation' },
+              {
+                singletonKey: source.librarySectionId,
+                singletonSeconds: config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES * 60,
+              },
+            ),
+          ),
+        )
+        console.info(
+          { jobId: job.id, trigger: job.data.trigger, libraryCount: sources.length, jobIds },
+          'Plex reconciliation queued',
+        )
+      }
+    },
+  )
   await jobQueue.work<RecommendationRunJob>(
     RECOMMENDATION_RUN_QUEUE,
     { batchSize: 1, localConcurrency: 1 },
@@ -51,7 +85,11 @@ async function start(): Promise<void> {
     },
   )
 
-  console.info(`Musearr worker ${MUSEARR_VERSION} is ready for durable Plex sync jobs.`)
+  await scheduleLibraryReconciliation(jobQueue, config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES)
+
+  console.info(
+    `Musearr worker ${MUSEARR_VERSION} is ready for durable Plex sync jobs and ${config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES}-minute reconciliation.`,
+  )
 }
 
 async function stop(signal: string): Promise<void> {

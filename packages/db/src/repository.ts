@@ -28,6 +28,7 @@ export type InitialSetupResult = {
 
 export type LibrarySyncSource = {
   plexServerId: string
+  machineIdentifier: string
   librarySectionId: string
   plexSectionId: string
   serverName: string
@@ -215,6 +216,7 @@ export async function getLibrarySyncSources(
   const sources = await database<
     Array<{
       plex_server_id: string
+      machine_identifier: string
       library_section_id: string
       plex_section_id: string
       server_name: string
@@ -225,6 +227,7 @@ export async function getLibrarySyncSources(
   >`
     SELECT
       ps.id AS plex_server_id,
+      ps.machine_identifier,
       ls.id AS library_section_id,
       ls.plex_section_id,
       ps.name AS server_name,
@@ -243,6 +246,7 @@ export async function getLibrarySyncSources(
 
   return sources.map((source) => ({
     plexServerId: source.plex_server_id,
+    machineIdentifier: source.machine_identifier,
     librarySectionId: source.library_section_id,
     plexSectionId: source.plex_section_id,
     serverName: source.server_name,
@@ -255,13 +259,14 @@ export async function getLibrarySyncSources(
 export async function beginSyncRun(
   database: Database,
   source: LibrarySyncSource,
+  trigger: 'initial-setup' | 'manual' | 'webhook' | 'reconciliation',
 ): Promise<string> {
   const result = await database<Array<{ id: string }>>`
     INSERT INTO sync_runs (plex_server_id, library_section_id, kind, status, started_at, cursor, counts)
     VALUES (
       ${source.plexServerId},
       ${source.librarySectionId},
-      'initial-library-import',
+      ${`${trigger}-library-import`},
       'running',
       NOW(),
       ${JSON.stringify({ offset: 0 })}::jsonb,
@@ -295,19 +300,27 @@ export async function updateSyncProgress(
 export async function completeSyncRun(
   database: Database,
   runId: string,
+  librarySectionId: string,
   progress: SyncProgress,
 ): Promise<void> {
-  await database`
-    UPDATE sync_runs
-    SET status = 'completed',
-        finished_at = NOW(),
-        cursor = ${JSON.stringify({ offset: progress.offset })}::jsonb,
-        counts = ${JSON.stringify({
-          importedTracks: progress.importedTracks,
-          skippedTracks: progress.skippedTracks,
-        })}::jsonb
-    WHERE id = ${runId}
-  `
+  await database.begin(async (transaction) => {
+    await transaction`
+      UPDATE sync_runs
+      SET status = 'completed',
+          finished_at = NOW(),
+          cursor = ${JSON.stringify({ offset: progress.offset })}::jsonb,
+          counts = ${JSON.stringify({
+            importedTracks: progress.importedTracks,
+            skippedTracks: progress.skippedTracks,
+          })}::jsonb
+      WHERE id = ${runId}
+    `
+    await transaction`
+      UPDATE library_sections
+      SET last_full_sync_at = NOW(), updated_at = NOW()
+      WHERE id = ${librarySectionId}
+    `
+  })
 }
 
 export async function failSyncRun(database: Database, runId: string, errorSummary: string): Promise<void> {

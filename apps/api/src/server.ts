@@ -1,12 +1,15 @@
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
+import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
+import { timingSafeEqual } from 'node:crypto'
 import { getConfig, type MusearrConfig } from '@musearr/config'
 import {
   CompleteSetupRequestSchema,
   PlexConnectionRequestSchema,
+  PlexWebhookPayloadSchema,
   QueueLibrarySyncRequestSchema,
   QueueRecommendationRunRequestSchema,
   RecommendationQuerySchema,
@@ -27,7 +30,7 @@ import {
   type Database,
 } from '@musearr/db'
 import { PlexClient, PlexConnectionError, normalisePlexBaseUrl } from '@musearr/plex'
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { PgBoss } from 'pg-boss'
 
 declare module '@fastify/jwt' {
@@ -41,7 +44,10 @@ type ServerOptions = {
   config?: MusearrConfig
   database?: Database
   startJobQueue?: boolean
+  jobQueue?: Pick<PgBoss, 'send'>
 }
+
+type ApiJobQueue = Pick<PgBoss, 'send'> & Partial<Pick<PgBoss, 'stop'>>
 
 const SESSION_COOKIE = 'musearr_session'
 
@@ -107,17 +113,75 @@ function isAllowedBrowserMutation(requestOrigin: string | undefined, webOrigin: 
   }
 }
 
+function webhookSecretsMatch(expectedSecret: string | undefined, receivedSecret: unknown): boolean {
+  if (!expectedSecret || typeof receivedSecret !== 'string') {
+    return false
+  }
+  const expected = Buffer.from(expectedSecret)
+  const received = Buffer.from(receivedSecret)
+  return expected.length === received.length && timingSafeEqual(expected, received)
+}
+
+function isLibraryChangeEvent(event: string): boolean {
+  return event.startsWith('library.')
+}
+
+async function drainMultipartRequest(request: FastifyRequest): Promise<void> {
+  if (!request.isMultipart()) {
+    return
+  }
+
+  for await (const part of request.parts()) {
+    if (part.type === 'file') {
+      for await (const chunk of part.file) {
+        // Plex may attach a thumbnail. Drain it without retaining media in memory.
+        void chunk
+      }
+    }
+  }
+}
+
+async function parsePlexWebhookPayload(request: FastifyRequest): Promise<unknown> {
+  if (!request.isMultipart()) {
+    return request.body
+  }
+
+  let payload: string | undefined
+  for await (const part of request.parts()) {
+    if (part.type === 'field') {
+      if (part.fieldname === 'payload' && typeof part.value === 'string') {
+        payload = part.value
+      }
+      continue
+    }
+    for await (const chunk of part.file) {
+      // Plex may attach a thumbnail. Drain it without retaining media in memory.
+      void chunk
+    }
+  }
+
+  if (!payload) {
+    return undefined
+  }
+  try {
+    return JSON.parse(payload) as unknown
+  } catch {
+    return undefined
+  }
+}
+
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = options.config ?? getConfig()
   const database = options.database ?? createDatabase(config.DATABASE_URL)
   const ownsDatabase = !options.database
-  let jobQueue: PgBoss | null = null
+  let jobQueue: ApiJobQueue | null = options.jobQueue ?? null
   const app = Fastify({
     trustProxy: config.MUSEARR_TRUST_PROXY,
     logger: {
       level: config.NODE_ENV === 'production' ? 'info' : 'debug',
       redact: {
         paths: [
+          'req.url',
           'req.headers.x-plex-token',
           'req.headers.authorization',
           'req.body.token',
@@ -133,6 +197,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     credentials: true,
   })
   app.register(cookie)
+  app.register(multipart, {
+    limits: {
+      fieldNameSize: 100,
+      fieldSize: 64 * 1_024,
+      fields: 2,
+      fileSize: 1_024 * 1_024,
+      files: 1,
+      headerPairs: 100,
+      parts: 3,
+    },
+  })
   app.register(jwt, { secret: sessionSecret(config), cookie: { cookieName: SESSION_COOKIE, signed: false } })
   app.register(swagger, {
     openapi: {
@@ -152,7 +227,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
 
   app.addHook('onReady', async () => {
-    if (options.startJobQueue !== false) {
+    if (options.startJobQueue !== false && !jobQueue) {
       jobQueue = await startJobQueue(config.DATABASE_URL, (error) => app.log.error(error, 'Job queue error'))
     }
   })
@@ -206,6 +281,52 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       }
       throw error
     }
+  })
+
+  app.post('/api/v1/webhooks/plex', async (request, reply) => {
+    const query = request.query as { secret?: unknown }
+    if (!webhookSecretsMatch(config.MUSEARR_PLEX_WEBHOOK_SECRET, query.secret)) {
+      await drainMultipartRequest(request)
+      return reply.code(404).send()
+    }
+
+    const parsed = PlexWebhookPayloadSchema.safeParse(await parsePlexWebhookPayload(request))
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_WEBHOOK', 'Musearr could not read the Plex webhook payload.')
+    }
+    if (!isLibraryChangeEvent(parsed.data.event)) {
+      return reply.code(204).send()
+    }
+
+    const plexSectionId = parsed.data.Metadata?.librarySectionID
+    const machineIdentifier = parsed.data.Server?.uuid
+    if (!plexSectionId || !machineIdentifier) {
+      return reply.code(204).send()
+    }
+
+    const sources = await getLibrarySyncSources(database)
+    const source = sources.find(
+      (candidate) =>
+        candidate.machineIdentifier === machineIdentifier && candidate.plexSectionId === plexSectionId,
+    )
+    if (!source) {
+      return reply.code(204).send()
+    }
+
+    if (!jobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+
+    const jobId = await jobQueue.send(
+      LIBRARY_SYNC_QUEUE,
+      { librarySectionId: source.librarySectionId, trigger: 'webhook' },
+      { singletonKey: source.librarySectionId, singletonSeconds: 60 },
+    )
+    request.log.info(
+      { event: parsed.data.event, librarySectionId: source.librarySectionId, jobId },
+      'Queued Plex webhook refresh',
+    )
+    return reply.code(204).send()
   })
 
   app.post('/api/v1/setup/complete', async (request, reply) => {
@@ -395,7 +516,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   if (ownsDatabase) {
     app.addHook('onClose', async () => {
-      await jobQueue?.stop()
+      await jobQueue?.stop?.()
       await database.end({ timeout: 5 })
     })
   }

@@ -41,6 +41,7 @@ services:
       MUSEARR_TRUST_PROXY: "true"
       MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
       MUSEARR_SESSION_SECRET: ${MUSEARR_SESSION_SECRET:?Set MUSEARR_SESSION_SECRET in .env}
+      MUSEARR_PLEX_WEBHOOK_SECRET:
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -55,6 +56,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
       MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
+      MUSEARR_RECONCILIATION_INTERVAL_MINUTES: ${MUSEARR_RECONCILIATION_INTERVAL_MINUTES:-360}
     depends_on:
       migrate:
         condition: service_completed_successfully

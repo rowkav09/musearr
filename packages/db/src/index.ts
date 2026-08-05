@@ -15,7 +15,14 @@ export {
   updateSyncProgress,
   upsertLibraryTracks,
 } from './repository.js'
-export { LIBRARY_SYNC_QUEUE, RECOMMENDATION_RUN_QUEUE, startJobQueue } from './jobs.js'
+export {
+  LIBRARY_SYNC_QUEUE,
+  RECOMMENDATION_RUN_QUEUE,
+  RECONCILIATION_QUEUE,
+  reconciliationCron,
+  scheduleLibraryReconciliation,
+  startJobQueue,
+} from './jobs.js'
 export type {
   Database,
   InitialSetup,
@@ -29,5 +36,5 @@ export type {
   SetupStatusRecord,
   SyncProgress,
 } from './repository.js'
-export type { LibrarySyncJob, RecommendationRunJob } from './jobs.js'
+export type { LibrarySyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
 export * from './schema.js'

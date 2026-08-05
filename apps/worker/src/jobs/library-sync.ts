@@ -7,6 +7,7 @@ import {
   updateSyncProgress,
   upsertLibraryTracks,
   type Database,
+  type LibrarySyncJob,
 } from '@musearr/db'
 import { PlexClient } from '@musearr/plex'
 
@@ -16,6 +17,7 @@ export async function syncPlexLibrary(
   database: Database,
   encryptionKey: string | undefined,
   librarySectionId: string,
+  trigger: LibrarySyncJob['trigger'],
 ): Promise<{ importedTracks: number; skippedTracks: number }> {
   if (!encryptionKey) {
     throw new Error('MUSEARR_ENCRYPTION_KEY is required before Plex sync can run.')
@@ -26,7 +28,7 @@ export async function syncPlexLibrary(
     throw new Error('The requested Plex music library is no longer selected.')
   }
 
-  const runId = await beginSyncRun(database, source)
+  const runId = await beginSyncRun(database, source, trigger)
   const progress = { offset: 0, importedTracks: 0, skippedTracks: 0 }
 
   try {
@@ -45,7 +47,7 @@ export async function syncPlexLibrary(
       }
     }
 
-    await completeSyncRun(database, runId, progress)
+    await completeSyncRun(database, runId, source.librarySectionId, progress)
     return { importedTracks: progress.importedTracks, skippedTracks: progress.skippedTracks }
   } catch (error) {
     await failSyncRun(database, runId, error instanceof Error ? error.message : 'Unknown Plex sync error')
