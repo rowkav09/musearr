@@ -1,0 +1,29 @@
+name: Conventional pull request title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate-title:
+    name: Validate squash commit title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Conventional Commit title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node <<'NODE'
+          const title = process.env.PR_TITLE || '';
+          const conventional = /^(feat|fix|docs|test|refactor|build|ci|chore|perf|style)(\([a-z0-9._/-]+\))?!?: .+/;
+          if (!conventional.test(title)) {
+            console.error('Pull request title must be a Conventional Commit subject because squash merge uses it for main.');
+            console.error(`Received: ${title}`);
+            process.exit(1);
+          }
+          console.log('Validated Conventional Commit pull request title.');
+          NODE
