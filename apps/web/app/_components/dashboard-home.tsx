@@ -427,7 +427,6 @@ function syncSummary(sync: DashboardOverview['sync']): string {
     case 'completed': return sync.lastCompletedAt ? 'Your library mirror is current. Scheduled reconciliation keeps it fresh.' : 'Your library mirror is current.'
     case 'cancelled': return 'The last library sync was cancelled. Use the existing sync control when you are ready to run it again.'
     case 'not_started': return 'No library sync has started yet. Your library and listening insights will appear after the first sync.'
-    case 'failed': return sync.errorSummary ?? 'The last library sync did not finish.'
   }
 }
 
