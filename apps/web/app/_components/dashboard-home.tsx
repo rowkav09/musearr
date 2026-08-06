@@ -377,19 +377,57 @@ function ListeningDashboard({
           empty="Genre affinity appears after Musearr sees plays in your library."
           tone="violet"
         />
-        <article className="insight-card insight-card--green">
-          <p className="eyebrow">LIBRARY CARE</p>
-          <h2>{syncHeading(overview.sync.status)}</h2>
-          <p className="insight-card__copy">
-            {overview.sync.errorSummary ??
-              (overview.sync.lastCompletedAt
-                ? `Last completed ${formatDate(overview.sync.lastCompletedAt)}. Scheduled reconciliation keeps the mirror honest.`
-                : 'Musearr will show sync freshness here as soon as the first library job completes.')}
-          </p>
-        </article>
+        <SyncStateCard sync={overview.sync} />
       </section>
     </>
   )
+}
+
+function SyncStateCard({ sync }: { sync: DashboardOverview['sync'] }) {
+  const isActive = sync.status === 'queued' || sync.status === 'running'
+  const isFailure = sync.status === 'failed'
+
+  return (
+    <article
+      className={`insight-card insight-card--green sync-state-card sync-state-card--${sync.status}`}
+      aria-live={isActive || isFailure ? 'polite' : undefined}
+    >
+      <div className="sync-state-card__heading">
+        <p className="eyebrow">LIBRARY CARE</p>
+        <span className="sync-state-badge">{syncStatusLabel(sync.status)}</span>
+      </div>
+      <h2>{syncHeading(sync.status)}</h2>
+      <p className="insight-card__copy">{syncSummary(sync)}</p>
+      {sync.lastCompletedAt ? (
+        <p className="sync-state-card__timestamp">Last completed {formatDate(sync.lastCompletedAt)}</p>
+      ) : null}
+    </article>
+  )
+}
+
+function syncStatusLabel(status: DashboardOverview['sync']['status']): string {
+  switch (status) {
+    case 'not_started': return 'Not started'
+    case 'queued': return 'Queued'
+    case 'running': return 'Syncing'
+    case 'completed': return 'Up to date'
+    case 'failed': return 'Needs attention'
+    case 'cancelled': return 'Cancelled'
+  }
+}
+
+function syncSummary(sync: DashboardOverview['sync']): string {
+  if (sync.status === 'failed') {
+    return sync.errorSummary ?? 'The last library sync did not finish. Check your Plex connection, then use the existing sync control to try again.'
+  }
+
+  switch (sync.status) {
+    case 'queued': return 'Your library sync is waiting to start. This dashboard will refresh when it finishes.'
+    case 'running': return 'Your library is being reconciled now. Keep this page open or return later for refreshed results.'
+    case 'completed': return sync.lastCompletedAt ? 'Your library mirror is current. Scheduled reconciliation keeps it fresh.' : 'Your library mirror is current.'
+    case 'cancelled': return 'The last library sync was cancelled. Use the existing sync control when you are ready to run it again.'
+    case 'not_started': return 'No library sync has started yet. Your library and listening insights will appear after the first sync.'
+  }
 }
 
 function DailyBriefPanel({
