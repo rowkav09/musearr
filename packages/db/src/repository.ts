@@ -66,6 +66,26 @@ export type SyncProgress = {
   skippedTracks: number
 }
 
+export type SyncFailureClassification =
+  | 'configuration'
+  | 'authentication'
+  | 'upstream_unavailable'
+  | 'upstream_response'
+  | 'unknown'
+
+export type SyncRunRecord = {
+  id: string
+  librarySectionId: string | null
+  libraryTitle: string | null
+  kind: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  counts: { importedTracks: number; skippedTracks: number }
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+  failure: { classification: SyncFailureClassification; summary: string } | null
+}
+
 export type PlexPlaylistUpsert = {
   plexRatingKey: string
   title: string
@@ -357,6 +377,30 @@ export async function getLibrarySyncSources(
   }))
 }
 
+export async function listSyncRuns(database: Database, limit = 50): Promise<SyncRunRecord[]> {
+  const rows = await database<SyncRunRow[]>`
+    SELECT sr.id, sr.library_section_id, ls.title AS library_title, sr.kind, sr.status,
+           sr.counts, sr.error_summary, sr.started_at, sr.finished_at, sr.created_at
+    FROM sync_runs sr
+    LEFT JOIN library_sections ls ON ls.id = sr.library_section_id
+    ORDER BY sr.created_at DESC
+    LIMIT ${Math.min(Math.max(limit, 1), 100)}
+  `
+  return rows.map(toSyncRunRecord)
+}
+
+export async function getSyncRun(database: Database, runId: string): Promise<SyncRunRecord | null> {
+  const rows = await database<SyncRunRow[]>`
+    SELECT sr.id, sr.library_section_id, ls.title AS library_title, sr.kind, sr.status,
+           sr.counts, sr.error_summary, sr.started_at, sr.finished_at, sr.created_at
+    FROM sync_runs sr
+    LEFT JOIN library_sections ls ON ls.id = sr.library_section_id
+    WHERE sr.id = ${runId}::uuid
+    LIMIT 1
+  `
+  return rows[0] ? toSyncRunRecord(rows[0]) : null
+}
+
 export async function beginSyncRun(
   database: Database,
   source: LibrarySyncSource,
@@ -420,10 +464,10 @@ export async function completeSyncRun(
   })
 }
 
-export async function failSyncRun(database: Database, runId: string, errorSummary: string): Promise<void> {
+export async function failSyncRun(database: Database, runId: string, error: unknown): Promise<void> {
   await database`
     UPDATE sync_runs
-    SET status = 'failed', finished_at = NOW(), error_summary = ${errorSummary.slice(0, 1_000)}
+    SET status = 'failed', finished_at = NOW(), error_summary = ${sanitiseSyncFailure(error)}
     WHERE id = ${runId}
   `
 }
@@ -1463,4 +1507,87 @@ function serialiseTimestamp(value: Date | string | null): string | null {
 function numericValue(value: number | string | null | undefined): number {
   const numeric = Number(value ?? 0)
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
+}
+
+type SyncRunRow = {
+  id: string
+  library_section_id: string | null
+  library_title: string | null
+  kind: string
+  status: SyncRunRecord['status']
+  counts: unknown
+  error_summary: string | null
+  started_at: Date | string | null
+  finished_at: Date | string | null
+  created_at: Date | string
+}
+
+function toSyncRunRecord(row: SyncRunRow): SyncRunRecord {
+  const failure = row.error_summary ? parseStoredSyncFailure(row.error_summary) : null
+  return {
+    id: row.id,
+    librarySectionId: row.library_section_id,
+    libraryTitle: row.library_title,
+    kind: row.kind,
+    status: row.status,
+    counts: parseSyncCounts(row.counts),
+    startedAt: serialiseTimestamp(row.started_at),
+    finishedAt: serialiseTimestamp(row.finished_at),
+    createdAt: serialiseTimestamp(row.created_at) ?? new Date(0).toISOString(),
+    failure,
+  }
+}
+
+function parseSyncCounts(value: unknown): { importedTracks: number; skippedTracks: number } {
+  const counts = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  return {
+    importedTracks: nonNegativeInteger(counts.importedTracks),
+    skippedTracks: nonNegativeInteger(counts.skippedTracks),
+  }
+}
+
+function nonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+}
+
+function sanitiseSyncFailure(error: unknown): string {
+  const classification = classifySyncFailure(error)
+  return `${classification}: ${safeFailureSummary(classification)}`
+}
+
+function classifySyncFailure(error: unknown): SyncFailureClassification {
+  if (hasSyncFailureClassification(error)) return error.classification
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) return 'configuration'
+  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) return 'authentication'
+  if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) return 'upstream_unavailable'
+  if (message.includes('plex') || message.includes('response') || message.includes('parse')) return 'upstream_response'
+  return 'unknown'
+}
+
+function hasSyncFailureClassification(error: unknown): error is { classification: SyncFailureClassification } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'classification' in error &&
+    ['configuration', 'authentication', 'upstream_unavailable', 'upstream_response', 'unknown'].includes(
+      (error as { classification?: unknown }).classification as string,
+    )
+  )
+}
+
+function safeFailureSummary(classification: SyncFailureClassification): string {
+  switch (classification) {
+    case 'configuration': return 'Sync configuration needs attention.'
+    case 'authentication': return 'Plex authentication was rejected.'
+    case 'upstream_unavailable': return 'Plex is temporarily unavailable.'
+    case 'upstream_response': return 'Plex returned an unexpected response.'
+    default: return 'The sync did not complete.'
+  }
+}
+
+function parseStoredSyncFailure(value: string): SyncRunRecord['failure'] {
+  const match = /^(configuration|authentication|upstream_unavailable|upstream_response|unknown): (.+)$/.exec(value)
+  if (!match) return { classification: 'unknown', summary: 'The sync did not complete.' }
+  return { classification: match[1] as SyncFailureClassification, summary: match[2] ?? 'The sync did not complete.' }
 }

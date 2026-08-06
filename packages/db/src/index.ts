@@ -22,6 +22,8 @@ export {
   getLatestRecommendations,
   getRecommendationCandidates,
   getSetupStatus,
+  getSyncRun,
+  listSyncRuns,
   insertInitialSetup,
   rebuildListeningRollups,
   updateSyncProgress,
@@ -61,6 +63,7 @@ export type {
   RecommendationCandidateRecord,
   RecommendationKind,
   SetupStatusRecord,
+  SyncFailureClassification,
   SyncProgress,
 } from './repository.js'
 export type { DailyBriefJob, LibrarySyncJob, PlaylistSyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
