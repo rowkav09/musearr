@@ -979,8 +979,8 @@ export async function getLatestRecommendations(
       album_title: string
       rank: number
       score: string | number
-      reason_codes: object[]
-      explanation_data: { summary?: string }
+      reason_codes: unknown
+      explanation_data: unknown
     }>
   >`
     WITH latest_runs AS (
@@ -1023,9 +1023,47 @@ export async function getLatestRecommendations(
     albumTitle: row.album_title,
     rank: row.rank,
     score: Number(row.score),
-    reasons: row.reason_codes,
-    summary: row.explanation_data.summary ?? '',
+    reasons: parseRecommendationReasons(row.reason_codes),
+    summary: parseRecommendationSummary(row.explanation_data),
   }))
+}
+
+function parseJsonValue(value: unknown): unknown {
+  let parsed = value
+
+  for (let attempt = 0; attempt < 2 && typeof parsed === 'string'; attempt += 1) {
+    try {
+      parsed = JSON.parse(parsed) as unknown
+    } catch {
+      return null
+    }
+  }
+
+  return parsed
+}
+
+function parseRecommendationReasons(value: unknown): object[] {
+  const parsed = parseJsonValue(value)
+
+  if (!Array.isArray(parsed)) {
+    return []
+  }
+
+  return parsed.filter(
+    (reason): reason is object =>
+      typeof reason === 'object' && reason !== null && !Array.isArray(reason),
+  )
+}
+
+function parseRecommendationSummary(value: unknown): string {
+  const parsed = parseJsonValue(value)
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return ''
+  }
+
+  const summary = (parsed as Record<string, unknown>).summary
+  return typeof summary === 'string' ? summary : ''
 }
 
 export async function getOwnerUserIds(database: Database): Promise<string[]> {
