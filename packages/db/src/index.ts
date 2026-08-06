@@ -22,6 +22,8 @@ export {
   getLatestRecommendations,
   getRecommendationCandidates,
   getSetupStatus,
+  getSyncRun,
+  listSyncRuns,
   insertInitialSetup,
   rebuildListeningRollups,
   updateSyncProgress,
