@@ -23,6 +23,8 @@ ci(containers): verify Docker builds on pull requests
 
 Allowed types are `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`, `perf`, and `style`. Scopes are optional. Already-merged history is preserved; this rule governs new pull-request commits.
 
+Musearr uses **squash-only merges**. Pull request titles are also validated against the same convention because the approved title becomes the resulting `main` commit subject. Merge and rebase merges are disabled, and merged source branches are deleted automatically.
+
 ## Merge policy
 
 Keep each pull request focused and green. Do not merge with a failing required check. Merge dependent branches in order, inspecting the target branch before each merge. Create release tags only from validated `main` commits.
