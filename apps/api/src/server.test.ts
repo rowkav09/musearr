@@ -183,3 +183,90 @@ describe('dashboard', () => {
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
   })
 })
+
+
+describe('sync run observability', () => {
+  const runId = '9ad3649a-a78f-4aea-99dc-473c7c1c5501'
+  const syncRunRow = {
+    id: runId,
+    library_section_id: '2d95d6bc-6d55-43ab-a2ea-217a954a92a1',
+    library_title: 'Music',
+    kind: 'manual-library-import',
+    status: 'failed' as const,
+    counts: { importedTracks: 4, skippedTracks: 2 },
+    error_summary: 'authentication: Plex authentication was rejected.',
+    started_at: '2026-08-06T07:00:00.000Z',
+    finished_at: '2026-08-06T07:01:00.000Z',
+    created_at: '2026-08-06T06:59:00.000Z',
+  }
+
+  async function sessionHeaders(app: ReturnType<typeof buildServer>, role: 'owner' | 'member' = 'owner') {
+    await app.ready()
+    return { cookie: `musearr_session=${app.jwt.sign({ sub: `${role}-id`, role })}` }
+  }
+
+  it('requires an authenticated owner to list sync runs', async () => {
+    const app = createServer()
+    const unauthenticated = await app.inject({ method: 'GET', url: '/api/v1/sync-runs' })
+    const nonOwner = await app.inject({
+      method: 'GET',
+      url: '/api/v1/sync-runs',
+      headers: await sessionHeaders(app, 'member'),
+    })
+
+    expect(unauthenticated.statusCode).toBe(401)
+    expect(unauthenticated.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+    expect(nonOwner.statusCode).toBe(403)
+    expect(nonOwner.json()).toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('returns validated safe sync run values to the local owner', async () => {
+    const database = (async () => [syncRunRow]) as unknown as Database
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/sync-runs',
+      headers: await sessionHeaders(app),
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      runs: [{
+        id: runId,
+        librarySectionId: '2d95d6bc-6d55-43ab-a2ea-217a954a92a1',
+        libraryTitle: 'Music',
+        kind: 'manual-library-import',
+        status: 'failed',
+        counts: { importedTracks: 4, skippedTracks: 2 },
+        startedAt: '2026-08-06T07:00:00.000Z',
+        finishedAt: '2026-08-06T07:01:00.000Z',
+        createdAt: '2026-08-06T06:59:00.000Z',
+        failure: { classification: 'authentication', summary: 'Plex authentication was rejected.' },
+      }],
+    })
+  })
+
+  it('validates ids and returns found or hidden missing records', async () => {
+    const database = vi
+      .fn()
+      .mockResolvedValueOnce([syncRunRow])
+      .mockResolvedValueOnce([]) as unknown as Database
+    const app = createServer({ database })
+    const headers = await sessionHeaders(app)
+
+    const invalid = await app.inject({ method: 'GET', url: '/api/v1/sync-runs/not-a-uuid', headers })
+    const found = await app.inject({ method: 'GET', url: `/api/v1/sync-runs/${runId}`, headers })
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/api/v1/sync-runs/1394ed5a-2f78-492f-b0d1-5f37bc4218bc',
+      headers,
+    })
+
+    expect(invalid.statusCode).toBe(400)
+    expect(invalid.json()).toMatchObject({ code: 'INVALID_REQUEST' })
+    expect(found.statusCode).toBe(200)
+    expect(found.json()).toMatchObject({ run: { id: runId, failure: { classification: 'authentication' } } })
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json()).toMatchObject({ code: 'SYNC_RUN_NOT_FOUND' })
+  })
+})
