@@ -9,6 +9,7 @@ import {
   upsertLibraryTracks,
   type Database,
   type LibrarySyncJob,
+  type SyncFailureClassification,
 } from '@musearr/db'
 import { PlexClient } from '@musearr/plex'
 
@@ -55,7 +56,32 @@ export async function syncPlexLibrary(
       skippedTracks: progress.skippedTracks,
     }
   } catch (error) {
-    await failSyncRun(database, runId, error)
+    await failSyncRun(database, runId, sanitiseSyncFailure(error))
     throw error
   }
+}
+
+export type SanitisedSyncFailure = {
+  classification: SyncFailureClassification
+  summary: string
+  retryable: boolean
+}
+
+/** Converts operational errors into a stable, secret-safe persisted failure. */
+export function sanitiseSyncFailure(error: unknown): SanitisedSyncFailure {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+
+  if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) {
+    return { classification: 'configuration', summary: 'Sync configuration needs attention.', retryable: false }
+  }
+  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) {
+    return { classification: 'authentication', summary: 'Plex authentication was rejected.', retryable: false }
+  }
+  if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) {
+    return { classification: 'upstream_unavailable', summary: 'Plex is temporarily unavailable.', retryable: true }
+  }
+  if (message.includes('plex') || message.includes('response') || message.includes('parse')) {
+    return { classification: 'upstream_response', summary: 'Plex returned an unexpected response.', retryable: true }
+  }
+  return { classification: 'unknown', summary: 'The sync did not complete.', retryable: true }
 }
