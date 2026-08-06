@@ -55,7 +55,7 @@ export async function syncPlexLibrary(
       skippedTracks: progress.skippedTracks,
     }
   } catch (error) {
-    await failSyncRun(database, runId, error instanceof Error ? error.message : 'Unknown Plex sync error')
+    await failSyncRun(database, runId, error)
     throw error
   }
 }
