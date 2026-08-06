@@ -83,7 +83,7 @@ export type SyncRunRecord = {
   startedAt: string | null
   finishedAt: string | null
   createdAt: string
-  failure: { classification: SyncFailureClassification; summary: string; retryable: boolean } | null
+  failure: { classification: SyncFailureClassification; summary: string } | null
 }
 
 export type PlexPlaylistUpsert = {
@@ -464,14 +464,10 @@ export async function completeSyncRun(
   })
 }
 
-export async function failSyncRun(
-  database: Database,
-  runId: string,
-  failure: { classification: SyncFailureClassification; summary: string; retryable: boolean },
-): Promise<void> {
+export async function failSyncRun(database: Database, runId: string, error: unknown): Promise<void> {
   await database`
     UPDATE sync_runs
-    SET status = 'failed', finished_at = NOW(), error_summary = ${serialiseSyncFailure(failure)}
+    SET status = 'failed', finished_at = NOW(), error_summary = ${sanitiseSyncFailure(error)}
     WHERE id = ${runId}
   `
 }
@@ -1535,9 +1531,9 @@ function toSyncRunRecord(row: SyncRunRow): SyncRunRecord {
     kind: row.kind,
     status: row.status,
     counts: parseSyncCounts(row.counts),
-    startedAt: toIsoString(row.started_at),
-    finishedAt: toIsoString(row.finished_at),
-    createdAt: toIsoString(row.created_at) ?? new Date(0).toISOString(),
+    startedAt: serialiseTimestamp(row.started_at),
+    finishedAt: serialiseTimestamp(row.finished_at),
+    createdAt: serialiseTimestamp(row.created_at) ?? new Date(0).toISOString(),
     failure,
   }
 }
@@ -1554,16 +1550,32 @@ function nonNegativeInteger(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
 }
 
-function serialiseSyncFailure(failure: { classification: SyncFailureClassification; summary: string; retryable: boolean }): string {
-  return `${failure.classification}|${failure.retryable ? 'retryable' : 'not_retryable'}: ${failure.summary}`
+function sanitiseSyncFailure(error: unknown): string {
+  const classification = classifySyncFailure(error)
+  return `${classification}: ${safeFailureSummary(classification)}`
+}
+
+function classifySyncFailure(error: unknown): SyncFailureClassification {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) return 'configuration'
+  if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) return 'authentication'
+  if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) return 'upstream_unavailable'
+  if (message.includes('plex') || message.includes('response') || message.includes('parse')) return 'upstream_response'
+  return 'unknown'
+}
+
+function safeFailureSummary(classification: SyncFailureClassification): string {
+  switch (classification) {
+    case 'configuration': return 'Sync configuration needs attention.'
+    case 'authentication': return 'Plex authentication was rejected.'
+    case 'upstream_unavailable': return 'Plex is temporarily unavailable.'
+    case 'upstream_response': return 'Plex returned an unexpected response.'
+    default: return 'The sync did not complete.'
+  }
 }
 
 function parseStoredSyncFailure(value: string): SyncRunRecord['failure'] {
-  const match = /^(configuration|authentication|upstream_unavailable|upstream_response|unknown)(?:\|(retryable|not_retryable))?: (.+)$/.exec(value)
-  if (!match) return { classification: 'unknown', summary: 'The sync did not complete.', retryable: true }
-  return {
-    classification: match[1] as SyncFailureClassification,
-    retryable: match[2] ? match[2] === 'retryable' : match[1] !== 'configuration' && match[1] !== 'authentication',
-    summary: match[3],
-  }
+  const match = /^(configuration|authentication|upstream_unavailable|upstream_response|unknown): (.+)$/.exec(value)
+  if (!match) return { classification: 'unknown', summary: 'The sync did not complete.' }
+  return { classification: match[1] as SyncFailureClassification, summary: match[2] ?? 'The sync did not complete.' }
 }
