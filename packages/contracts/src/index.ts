@@ -205,3 +205,41 @@ export type DashboardOverview = z.infer<typeof DashboardOverviewSchema>
 export type DailyBrief = z.infer<typeof DailyBriefSchema>
 export type DailyBriefResponse = z.infer<typeof DailyBriefResponseSchema>
 export type ListeningInsightSummary = z.infer<typeof ListeningInsightSummarySchema>
+
+
+export const SyncFailureClassificationSchema = z.enum([
+  'configuration',
+  'authentication',
+  'upstream_unavailable',
+  'upstream_response',
+  'unknown',
+])
+
+export const SyncRunSchema = z.object({
+  id: z.string().uuid(),
+  librarySectionId: z.string().uuid().nullable(),
+  libraryTitle: z.string().nullable(),
+  kind: z.string(),
+  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  counts: z.object({
+    importedTracks: z.number().int().nonnegative(),
+    skippedTracks: z.number().int().nonnegative(),
+  }),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  failure: z
+    .object({
+      classification: SyncFailureClassificationSchema,
+      summary: z.string(),
+    })
+    .nullable(),
+})
+
+export const SyncRunListResponseSchema = z.object({ runs: z.array(SyncRunSchema) })
+export const SyncRunResponseSchema = z.object({ run: SyncRunSchema })
+
+export type SyncFailureClassification = z.infer<typeof SyncFailureClassificationSchema>
+export type SyncRun = z.infer<typeof SyncRunSchema>
+export type SyncRunListResponse = z.infer<typeof SyncRunListResponseSchema>
+export type SyncRunResponse = z.infer<typeof SyncRunResponseSchema>

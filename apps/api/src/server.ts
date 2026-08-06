@@ -16,6 +16,8 @@ import {
   PlexWebhookPayloadSchema,
   QueueLibrarySyncRequestSchema,
   QueueRecommendationRunRequestSchema,
+  SyncRunListResponseSchema,
+  SyncRunResponseSchema,
   RecommendationQuerySchema,
   type SetupStatus,
   SystemStatusSchema,
@@ -31,6 +33,8 @@ import {
   getLatestDailyBrief,
   getListeningInsightSummary,
   getSetupStatus,
+  getSyncRun,
+  listSyncRuns,
   getUserTimezone,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
@@ -474,6 +478,36 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   app.post('/api/v1/auth/logout', async (request, reply) => {
     reply.clearCookie(SESSION_COOKIE, sessionCookieOptions(request))
     return reply.code(204).send()
+  })
+
+  app.get('/api/v1/sync-runs', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view sync activity.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can view sync activity.')
+    }
+    return reply.send(SyncRunListResponseSchema.parse({ runs: await listSyncRuns(database) }))
+  })
+
+  app.get('/api/v1/sync-runs/:id', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view sync activity.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can view sync activity.')
+    }
+    const id = typeof (request.params as { id?: unknown }).id === 'string' ? (request.params as { id: string }).id : ''
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid sync run.')
+    }
+    const run = await getSyncRun(database, id)
+    if (!run) return sendProblem(reply, 404, 'SYNC_RUN_NOT_FOUND', 'No sync run matched this request.')
+    return reply.send(SyncRunResponseSchema.parse({ run }))
   })
 
   app.post('/api/v1/sync', async (request, reply) => {

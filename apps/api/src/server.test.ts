@@ -158,6 +158,21 @@ describe('dashboard', () => {
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
   })
 
+  it('requires a local session before listing sync runs', async () => {
+    const response = await createServer().inject({ method: 'GET', url: '/api/v1/sync-runs' })
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
+
+  it('requires a local session before exposing a sync run', async () => {
+    const response = await createServer().inject({
+      method: 'GET',
+      url: '/api/v1/sync-runs/9ad3649a-a78f-4aea-99dc-473c7c1c5501',
+    })
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
+
   it('requires a local session before exposing listening insights', async () => {
     const response = await createServer().inject({
       method: 'GET',
