@@ -1,0 +1,41 @@
+name: Conventional commits
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate pull request commit subjects
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Conventional Commit subjects
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const base = process.env.BASE_SHA;
+          const head = process.env.HEAD_SHA;
+          if (!base || !head) {
+            console.log('No pull request range available; skipping commit-subject validation.');
+            process.exit(0);
+          }
+          const subjects = execFileSync('git', ['log', '--format=%s', `${base}..${head}`], { encoding: 'utf8' }).split('\n').filter(Boolean);
+          const conventional = /^(feat|fix|docs|test|refactor|build|ci|chore|perf|style)(\([a-z0-9._/-]+\))?!?: .+/;
+          const invalid = subjects.filter((subject) => !conventional.test(subject));
+          if (invalid.length > 0) {
+            console.error('Use Conventional Commit subjects, for example: feat(sync): expose sync run status');
+            for (const subject of invalid) console.error(`- ${subject}`);
+            process.exit(1);
+          }
+          console.log(`Validated ${subjects.length} Conventional Commit subject(s).`);
+          NODE
