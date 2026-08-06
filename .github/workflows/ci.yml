@@ -67,6 +67,7 @@ jobs:
       POSTGRES_PASSWORD: ci-only-password
       MUSEARR_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       MUSEARR_SESSION_SECRET: ci-only-session-secret
+      MUSEARR_IMAGE_VERSION: ci-validation
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
