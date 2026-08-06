@@ -26,3 +26,7 @@ Allowed types are `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci`, `cho
 ## Merge policy
 
 Keep each pull request focused and green. Do not merge with a failing required check. Merge dependent branches in order, inspecting the target branch before each merge. Create release tags only from validated `main` commits.
+
+## Releases
+
+See [Release policy](RELEASES.md) for SemVer rules, immutable tag and image expectations, compatibility, upgrades, and rollbacks.
