@@ -4,6 +4,16 @@
 
 **Design baseline for the first public MVP.** This document is intentionally implementation-neutral: it defines what Musearr must become before new product code broadens the current foundation.
 
+### Implementation progress
+
+**Completed — M1 sync observability foundation:**
+
+- Sync failures persist as safe, stable classifications rather than raw upstream exception text.
+- Owner-safe sync-run list and detail API coverage is in place.
+- Dashboard library-care UI distinguishes not-started, queued, running, completed, failed, and cancelled states without inventing progress or ETAs.
+
+**Next focus:** fixture-driven Plex import correctness, resumability and recovery verification for the “Trustworthy first library” slice.
+
 ## 1. Product vision
 
 Musearr is the private, explainable intelligence layer for a Plex music library. It helps a self-hosting music collector decide what to play from music they already own, rediscover overlooked favourites, and understand the collection without exporting listening data or replacing Plex.
