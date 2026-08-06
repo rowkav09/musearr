@@ -66,19 +66,22 @@ type ViewState = 'loading' | 'ready' | 'unconfigured' | 'signed_out' | 'unavaila
 
 const startingMixes = [
   {
-    name: 'Daily Mix',
-    note: 'A little familiar, a little unexpected',
-    hue: 'rose',
+    name: 'Night Bus Windows',
+    artist: 'Cigarettes After Sex',
+    note: 'Soft repetition and slow-blooming detail for late listening.',
+    tone: 'violet',
   },
   {
-    name: 'Forgotten Favourites',
-    note: 'Albums you used to know by heart',
-    hue: 'violet',
+    name: 'After the Rain',
+    artist: 'Maya Delilah',
+    note: 'Warm guitar tones with the soul and jazz textures you revisit.',
+    tone: 'peach',
   },
   {
-    name: 'Hidden Gems',
-    note: 'The overlooked corners of your library',
-    hue: 'teal',
+    name: 'Waterfalls',
+    artist: 'Paul McCartney',
+    note: 'A familiar voice with a patient, melodic pulse.',
+    tone: 'gold',
   },
 ]
 
@@ -162,103 +165,53 @@ export function DashboardHome() {
     }
   }
 
-  if (viewState === 'ready' && overview) {
+  if (viewState === 'loading') {
+    return <DashboardLoading />
+  }
+
+  if (viewState === 'unconfigured') {
     return (
-      <ListeningDashboard
-        overview={overview}
-        dailyBrief={dailyBrief}
-        generationState={generationState}
-        briefGenerationState={briefGenerationState}
-        onGenerate={generateDailyMix}
-        onGenerateBrief={generateDailyBrief}
-      />
+      <section className="dashboard-empty" aria-labelledby="setup-dashboard-title">
+        <p className="eyebrow">WELCOME TO MUSEARR</p>
+        <h1 id="setup-dashboard-title">Set up your private listening home</h1>
+        <p>Connect your Plex server to turn your library and listening history into personal recommendations.</p>
+        <Link className="primary-button" href="/setup">
+          Begin setup
+        </Link>
+      </section>
     )
   }
 
-  return <StartingDashboard state={viewState} />
-}
+  if (viewState === 'signed_out') {
+    return (
+      <section className="dashboard-empty" aria-labelledby="sign-in-dashboard-title">
+        <p className="eyebrow">YOUR PRIVATE SPACE</p>
+        <h1 id="sign-in-dashboard-title">Sign in to see your listening world</h1>
+        <p>Your library, recommendations, and daily brief are kept behind your account.</p>
+        <Link className="primary-button" href="/login">
+          Sign in
+        </Link>
+      </section>
+    )
+  }
 
-function StartingDashboard({ state }: { state: ViewState }) {
-  const signedOut = state === 'signed_out'
-  const unavailable = state === 'unavailable'
-  const link = signedOut ? '/login' : unavailable ? '/' : '/setup'
-  const action = signedOut ? 'Sign in' : unavailable ? 'Refresh page' : 'Connect Plex'
-  const description = signedOut
-    ? 'Sign in with your local Musearr account to return to your private listening dashboard.'
-    : unavailable
-      ? 'Start the local API and PostgreSQL service, then return here to explore your library.'
-      : 'Connect Plex and Musearr will turn your collection into a living, private listening companion—one thoughtful recommendation at a time.'
+  if (viewState === 'unavailable' || !overview) {
+    return (
+      <section className="dashboard-empty" aria-labelledby="unavailable-dashboard-title">
+        <p className="eyebrow">DASHBOARD UNAVAILABLE</p>
+        <h1 id="unavailable-dashboard-title">Your listening home is taking a moment</h1>
+        <p>Refresh this page to try again. Your Plex library and recommendations remain private.</p>
+      </section>
+    )
+  }
 
   return (
     <>
-      <section className="welcome-section" aria-labelledby="welcome-title">
-        <div>
-          <p className="eyebrow">
-            {signedOut ? 'WELCOME BACK' : unavailable ? 'LOCAL SERVICE OFFLINE' : 'WELCOME HOME'}
-          </p>
-          <h1 id="welcome-title">{signedOut ? 'Your music is waiting.' : 'Music that remembers you.'}</h1>
-          <p className="welcome-copy">{description}</p>
-          <Link className="primary-button" href={link}>
-            {action} <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        <HeroArt />
-      </section>
-
-      <section className="section-block" aria-labelledby="mixes-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">STARTING SOON</p>
-            <h2 id="mixes-title">Your mixes will live here</h2>
-          </div>
-          <span className="quiet-label">Built from your library, never a black box.</span>
-        </div>
-        <div className="mix-grid">
-          {startingMixes.map((mix, index) => (
-            <article className="mix-card" key={mix.name}>
-              <div className={`mix-art mix-art--${mix.hue}`} aria-hidden="true">
-                <span className="mix-art__number">0{index + 1}</span>
-                <span className="mix-art__shape mix-art__shape--one" />
-                <span className="mix-art__shape mix-art__shape--two" />
-              </div>
-              <div className="mix-card__copy">
-                <h3>{mix.name}</h3>
-                <p>{mix.note}</p>
-                <span className="card-pending">Waiting for your library</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
-  )
-}
-
-function ListeningDashboard({
-  overview,
-  dailyBrief,
-  generationState,
-  briefGenerationState,
-  onGenerate,
-  onGenerateBrief,
-}: {
-  overview: DashboardOverview
-  dailyBrief: DailyBrief | null
-  generationState: 'idle' | 'queueing' | 'queued' | 'failed'
-  briefGenerationState: 'idle' | 'queueing' | 'queued' | 'failed'
-  onGenerate: () => void
-  onGenerateBrief: () => void
-}) {
-  const dailyMix = overview.dailyMix.slice(0, 5)
-  const hasMix = dailyMix.length > 0
-
-  return (
-    <>
-      <section className="welcome-section" aria-labelledby="listening-title">
-        <div>
-          <p className="eyebrow">YOUR MUSIC ROOM</p>
-          <h1 id="listening-title">A little closer to your next favourite.</h1>
-          <p className="welcome-copy">
+      <section className="hero-panel" aria-labelledby="dashboard-title">
+        <div className="hero-panel__copy">
+          <p className="eyebrow">GOOD MORNING</p>
+          <h1 id="dashboard-title">A little more of what moves you.</h1>
+          <p>
             {overview.library.trackCount > 0
               ? `${formatNumber(overview.library.trackCount)} tracks from ${formatNumber(overview.library.artistCount)} artists are ready to rediscover.`
               : 'Your first Plex sync is under way. This view will become personal as soon as tracks arrive.'}
@@ -266,86 +219,45 @@ function ListeningDashboard({
           <button
             className="primary-button"
             disabled={generationState === 'queueing'}
-            onClick={onGenerate}
+            onClick={generateDailyMix}
             type="button"
           >
             {generationState === 'queueing'
               ? 'Preparing your mix…'
               : generationState === 'queued'
                 ? 'Daily Mix queued'
-                : 'Refresh Daily Mix'}{' '}
-            <span aria-hidden="true">→</span>
+                : 'Generate Daily Mix'}
           </button>
-          {generationState === 'failed' && (
-            <p className="hero-message">Musearr could not queue a mix. Try again shortly.</p>
-          )}
-          {generationState === 'queued' && (
-            <p className="hero-message">The worker will create it locally; refresh this page in a moment.</p>
-          )}
+          {generationState === 'failed' ? <p className="action-error">Your Daily Mix could not be queued. Try again.</p> : null}
         </div>
-        <HeroArt />
-      </section>
-
-      <section className="section-block" aria-labelledby="library-pulse-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">LISTENING PULSE</p>
-            <h2 id="library-pulse-title">Your library, in focus</h2>
-          </div>
-          <span className="quiet-label">Calculated from your local Plex mirror.</span>
-        </div>
-        <div className="intelligence-grid">
-          <StatCard
-            label="Tracks"
-            value={formatNumber(overview.library.trackCount)}
-            note={
-              overview.library.newestAddedAt
-                ? `Newest addition ${formatDate(overview.library.newestAddedAt)}`
-                : 'Waiting for library dates'
-            }
-          />
-          <StatCard
-            label="Listening time"
-            value={formatDuration(overview.library.totalDurationMs)}
-            note={`${formatNumber(overview.library.albumCount)} albums in your room`}
-          />
-          <StatCard
-            label="Reported plays"
-            value={formatNumber(overview.listening.totalPlayCount)}
-            note={
-              overview.listening.lastPlayedAt
-                ? `Last played ${formatDate(overview.listening.lastPlayedAt)}`
-                : 'Plex has not reported a play yet'
-            }
-          />
-          <StatCard
-            label="Rated tracks"
-            value={formatNumber(overview.listening.ratedTrackCount)}
-            note={`${formatNumber(overview.listening.playedTrackCount)} tracks played`}
-          />
+        <div className="hero-art" aria-hidden="true">
+          <span className="hero-art__sun" />
+          <span className="hero-art__arc hero-art__arc--one" />
+          <span className="hero-art__arc hero-art__arc--two" />
+          <span className="hero-art__orb hero-art__orb--one" />
+          <span className="hero-art__orb hero-art__orb--two" />
+          <span className="hero-art__line" />
         </div>
       </section>
 
-      <section className="section-block" aria-labelledby="daily-mix-title" id="daily-mix">
+      <section className="section-block" aria-labelledby="daily-mix-title">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">EXPLAINABLE DAILY MIX</p>
-            <h2 id="daily-mix-title">{hasMix ? 'For this moment' : 'Ready when you are'}</h2>
+            <p className="eyebrow">TODAY’S MIX</p>
+            <h2 id="daily-mix-title">Made from your library</h2>
           </div>
-          {hasMix && <span className="quiet-label">Generated {formatDate(dailyMix[0]?.createdAt ?? '')}</span>}
+          {overview.dailyMix.length > 0 ? <span className="quiet-label">Updated today</span> : null}
         </div>
-        {hasMix ? (
-          <div className="recommendation-list">
-            {dailyMix.map((recommendation) => (
-              <article className="recommendation-row" key={`${recommendation.runId}-${recommendation.rank}`}>
-                <span className="recommendation-rank">{String(recommendation.rank).padStart(2, '0')}</span>
-                <div className="recommendation-song">
-                  <strong>{recommendation.trackTitle}</strong>
-                  <span>
-                    {recommendation.artistName} · {recommendation.albumTitle}
-                  </span>
+        {overview.dailyMix.length > 0 ? (
+          <div className="mix-grid">
+            {overview.dailyMix.slice(0, 3).map((recommendation, index) => (
+              <article className={`mix-card mix-card--${startingMixes[index]?.tone ?? 'violet'}`} key={recommendation.runId}>
+                <span className="mix-card__number">0{index + 1}</span>
+                <div>
+                  <h3>{recommendation.trackTitle}</h3>
+                  <p>{recommendation.artistName}</p>
                 </div>
-                <p>{recommendation.summary}</p>
+                <p className="mix-card__reason">{recommendation.summary}</p>
               </article>
             ))}
           </div>
@@ -357,11 +269,7 @@ function ListeningDashboard({
         )}
       </section>
 
-      <DailyBriefPanel
-        brief={dailyBrief}
-        generationState={briefGenerationState}
-        onGenerate={onGenerateBrief}
-      />
+      <DailyBriefPanel brief={dailyBrief} generationState={briefGenerationState} onGenerate={generateDailyBrief} />
 
       <section className="dashboard-split" aria-label="Favourite artists, genres, and sync status">
         <InsightCard
@@ -374,22 +282,75 @@ function ListeningDashboard({
           eyebrow="FAVOURITE GENRES"
           title="Your current texture"
           values={overview.favourites.genres}
-          empty="Genre affinity appears after Musearr sees plays in your library."
+          empty="Genre signals will appear as you listen through your library."
           tone="violet"
         />
-        <article className="insight-card insight-card--green">
-          <p className="eyebrow">LIBRARY CARE</p>
-          <h2>{syncHeading(overview.sync.status)}</h2>
-          <p className="insight-card__copy">
-            {overview.sync.errorSummary ??
-              (overview.sync.lastCompletedAt
-                ? `Last completed ${formatDate(overview.sync.lastCompletedAt)}. Scheduled reconciliation keeps the mirror honest.`
-                : 'Musearr will show sync freshness here as soon as the first library job completes.')}
-          </p>
-        </article>
+        <SyncStateCard sync={overview.sync} />
       </section>
     </>
   )
+}
+
+function SyncStateCard({ sync }: { sync: DashboardOverview['sync'] }) {
+  const isActive = sync.status === 'queued' || sync.status === 'running'
+  const isFailure = sync.status === 'failed'
+
+  return (
+    <article
+      className={`insight-card insight-card--green sync-state-card sync-state-card--${sync.status}`}
+      aria-live={isActive || isFailure ? 'polite' : undefined}
+    >
+      <div className="sync-state-card__heading">
+        <p className="eyebrow">LIBRARY CARE</p>
+        <span className="sync-state-badge">{syncStatusLabel(sync.status)}</span>
+      </div>
+      <h2>{syncHeading(sync.status)}</h2>
+      <p className="insight-card__copy">{syncSummary(sync)}</p>
+      {sync.lastCompletedAt ? (
+        <p className="sync-state-card__timestamp">Last completed {formatDate(sync.lastCompletedAt)}</p>
+      ) : null}
+    </article>
+  )
+}
+
+function syncStatusLabel(status: DashboardOverview['sync']['status']): string {
+  switch (status) {
+    case 'not_started':
+      return 'Not started'
+    case 'queued':
+      return 'Queued'
+    case 'running':
+      return 'Syncing'
+    case 'completed':
+      return 'Up to date'
+    case 'failed':
+      return 'Needs attention'
+    case 'cancelled':
+      return 'Cancelled'
+  }
+}
+
+function syncSummary(sync: DashboardOverview['sync']): string {
+  if (sync.status === 'failed') {
+    return sync.errorSummary ?? 'The last library sync did not finish. Check your Plex connection, then use the existing sync control to try again.'
+  }
+
+  switch (sync.status) {
+    case 'queued':
+      return 'Your library sync is waiting to start. This dashboard will refresh when it finishes.'
+    case 'running':
+      return 'Your library is being reconciled now. Keep this page open or return later for refreshed results.'
+    case 'completed':
+      return sync.lastCompletedAt
+        ? 'Your library mirror is current. Scheduled reconciliation keeps it fresh.'
+        : 'Your library mirror is current.'
+    case 'cancelled':
+      return 'The last library sync was cancelled. Use the existing sync control when you are ready to run it again.'
+    case 'not_started':
+      return 'No library sync has started yet. Your library and listening insights will appear after the first sync.'
+    case 'failed':
+      return sync.errorSummary ?? 'The last library sync did not finish.'
+  }
 }
 
 function DailyBriefPanel({
@@ -433,30 +394,24 @@ function DailyBriefPanel({
         </article>
       ) : (
         <div className="empty-intelligence">
-          <strong>Your first daily briefing is ready to be made.</strong>
-          <span>It will be saved locally before any optional Discord delivery, using only the facts in your Plex mirror.</span>
-          <button className="secondary-button" disabled={generationState === 'queueing'} onClick={onGenerate} type="button">
+          <strong>No daily briefing has been prepared yet.</strong>
+          <span>Generate one from your synced library whenever you want a private listening note.</span>
+          <button
+            className="secondary-button"
+            disabled={generationState === 'queueing'}
+            onClick={onGenerate}
+            type="button"
+          >
             {generationState === 'queueing'
-              ? 'Preparing your briefing…'
+              ? 'Preparing your note…'
               : generationState === 'queued'
-                ? 'Daily briefing queued'
-                : 'Create today’s briefing'}
+                ? 'Brief queued'
+                : 'Generate daily brief'}
           </button>
-          {generationState === 'failed' ? <span>Could not queue the briefing. Try again shortly.</span> : null}
-          {generationState === 'queued' ? <span>The local worker is preparing it now; refresh this page in a moment.</span> : null}
+          {generationState === 'failed' ? <p className="action-error">Your daily brief could not be queued. Try again.</p> : null}
         </div>
       )}
     </section>
-  )
-}
-
-function StatCard({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <article className="stat-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{note}</small>
-    </article>
   )
 }
 
@@ -465,67 +420,51 @@ function InsightCard({
   title,
   values,
   empty,
-  tone,
+  tone = 'sand',
 }: {
   eyebrow: string
   title: string
   values: Array<{ id: string; name: string; playCount: number }>
   empty: string
-  tone?: 'violet'
+  tone?: 'sand' | 'violet'
 }) {
   return (
-    <article className={`insight-card${tone ? ` insight-card--${tone}` : ''}`}>
+    <article className={`insight-card insight-card--${tone}`}>
       <p className="eyebrow">{eyebrow}</p>
       <h2>{title}</h2>
-      {values.length === 0 ? (
-        <p className="insight-card__copy">{empty}</p>
-      ) : (
-        <ol className="favourite-list">
-          {values.map((value) => (
+      {values.length > 0 ? (
+        <ul className="favourite-list">
+          {values.slice(0, 4).map((value) => (
             <li key={value.id}>
               <span>{value.name}</span>
               <small>{formatNumber(value.playCount)} plays</small>
             </li>
           ))}
-        </ol>
+        </ul>
+      ) : (
+        <p className="insight-card__copy">{empty}</p>
       )}
     </article>
   )
 }
 
-function HeroArt() {
+function DashboardLoading() {
   return (
-    <div className="hero-art" aria-hidden="true">
-      <div className="hero-art__sun" />
-      <div className="hero-art__arc hero-art__arc--one" />
-      <div className="hero-art__arc hero-art__arc--two" />
-      <div className="hero-art__orb hero-art__orb--one" />
-      <div className="hero-art__orb hero-art__orb--two" />
-      <div className="hero-art__line" />
+    <div className="dashboard-loading" aria-live="polite">
+      <span className="loading-mark" aria-hidden="true" />
+      <p>Opening your listening home…</p>
     </div>
   )
 }
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat().format(value)
+  return new Intl.NumberFormat('en-GB').format(value)
 }
-function formatDuration(value: number): string {
-  const totalMinutes = Math.floor(value / 60_000)
-  if (totalMinutes < 60) return `${totalMinutes} min`
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return minutes > 0 ? `${formatNumber(hours)}h ${minutes}m` : `${formatNumber(hours)}h`
-}
+
 function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? 'recently'
-    : new Intl.DateTimeFormat(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }).format(date)
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value))
 }
+
 function syncHeading(status: DashboardOverview['sync']['status']): string {
   switch (status) {
     case 'completed':
