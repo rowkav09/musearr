@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 type MusicLibrary = { id: string; title: string; type: 'artist' }
 type PlexConnection = {
@@ -10,15 +10,11 @@ type PlexConnection = {
   version: string | null
   musicLibraries: MusicLibrary[]
 }
-
+type StartResponse = { pinId: number; authUrl: string; expiresAt: string }
+type StatusResponse =
+  | { status: 'waiting' }
+  | { status: 'connected'; connectionId: string; connection: PlexConnection }
 type FormIssue = { detail?: string }
-
-const initialForm = {
-  baseUrl: '',
-  token: '',
-  ownerUsername: '',
-  ownerPassword: '',
-}
 
 async function getIssue(response: Response): Promise<string> {
   try {
@@ -31,43 +27,67 @@ async function getIssue(response: Response): Promise<string> {
 
 export function SetupConnectionForm() {
   const router = useRouter()
-  const [form, setForm] = useState(initialForm)
+  const pollTimer = useRef<number | null>(null)
   const [connection, setConnection] = useState<PlexConnection | null>(null)
+  const [connectionId, setConnectionId] = useState<string | null>(null)
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<string[]>([])
-  const [state, setState] = useState<'idle' | 'testing' | 'saving' | 'complete'>('idle')
+  const [ownerUsername, setOwnerUsername] = useState('')
+  const [ownerPassword, setOwnerPassword] = useState('')
+  const [state, setState] = useState<'idle' | 'authorising' | 'saving' | 'complete'>('idle')
   const [message, setMessage] = useState<string | null>(null)
 
-  function updateField(field: keyof typeof initialForm, value: string) {
-    setForm((current) => ({ ...current, [field]: value }))
-    if (field === 'baseUrl' || field === 'token') {
-      setConnection(null)
-      setSelectedLibraryIds([])
+  useEffect(() => {
+    return () => {
+      if (pollTimer.current !== null) window.clearTimeout(pollTimer.current)
     }
-    setMessage(null)
-  }
+  }, [])
 
-  async function testConnection(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setState('testing')
-    setMessage(null)
+  async function poll(pinId: number, attemptsRemaining = 330): Promise<void> {
+    if (attemptsRemaining <= 0) {
+      setState('idle')
+      setMessage('Plex sign-in expired. Try connecting again.')
+      return
+    }
 
     try {
-      const response = await fetch('/api/v1/setup/test-plex', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ baseUrl: form.baseUrl, token: form.token }),
-      })
-      if (!response.ok) {
-        throw new Error(await getIssue(response))
+      const response = await fetch(`/api/v1/setup/plex-auth/status/${pinId}`)
+      if (!response.ok) throw new Error(await getIssue(response))
+      const result = (await response.json()) as StatusResponse
+
+      if (result.status === 'connected') {
+        setConnection(result.connection)
+        setConnectionId(result.connectionId)
+        setSelectedLibraryIds(result.connection.musicLibraries.map((library) => library.id))
+        setState('idle')
+        setMessage(`Connected to ${result.connection.serverName}.`)
+        return
       }
-      const result = (await response.json()) as PlexConnection
-      setConnection(result)
-      setSelectedLibraryIds(result.musicLibraries.map((library) => library.id))
-      setMessage(`Connected to ${result.serverName}. Choose the music libraries Musearr should understand.`)
+
+      pollTimer.current = window.setTimeout(() => void poll(pinId, attemptsRemaining - 1), 1800)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Musearr could not reach Plex.')
-    } finally {
       setState('idle')
+      setMessage(error instanceof Error ? error.message : 'Musearr could not finish Plex sign-in.')
+    }
+  }
+
+  async function connectPlex() {
+    setState('authorising')
+    setMessage('Opening Plex sign-in…')
+
+    try {
+      const response = await fetch('/api/v1/setup/plex-auth/start', { method: 'POST' })
+      if (!response.ok) throw new Error(await getIssue(response))
+      const result = (await response.json()) as StartResponse
+      const popup = window.open(result.authUrl, 'musearr-plex-auth', 'popup,width=720,height=760')
+      if (!popup) {
+        window.location.href = result.authUrl
+        return
+      }
+      setMessage('Approve Musearr in the Plex window. This page will continue automatically.')
+      await poll(result.pinId)
+    } catch (error) {
+      setState('idle')
+      setMessage(error instanceof Error ? error.message : 'Musearr could not start Plex sign-in.')
     }
   }
 
@@ -77,13 +97,12 @@ export function SetupConnectionForm() {
         ? current.filter((id) => id !== libraryId)
         : [...current, libraryId],
     )
-    setMessage(null)
   }
 
   async function saveSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!connection || selectedLibraryIds.length === 0) {
-      setMessage('Choose at least one Plex music library before continuing.')
+    if (!connection || !connectionId || selectedLibraryIds.length === 0) {
+      setMessage('Connect Plex and choose at least one music library.')
       return
     }
 
@@ -93,18 +112,21 @@ export function SetupConnectionForm() {
       const response = await fetch('/api/v1/setup/complete', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...form, selectedLibraryIds }),
+        body: JSON.stringify({
+          plexConnectionId: connectionId,
+          ownerUsername,
+          ownerPassword,
+          selectedLibraryIds,
+        }),
       })
-      if (!response.ok) {
-        throw new Error(await getIssue(response))
-      }
-      setForm((current) => ({ ...current, token: '', ownerPassword: '' }))
+      if (!response.ok) throw new Error(await getIssue(response))
+      setOwnerPassword('')
       setState('complete')
-      setMessage('Your music room is ready. Musearr will prepare your first sync next.')
+      setMessage('Your music room is ready. Musearr is preparing the first sync.')
       window.setTimeout(() => router.push('/'), 900)
     } catch (error) {
       setState('idle')
-      setMessage(error instanceof Error ? error.message : 'Musearr could not save this connection.')
+      setMessage(error instanceof Error ? error.message : 'Musearr could not save setup.')
     }
   }
 
@@ -114,40 +136,25 @@ export function SetupConnectionForm() {
         <div className="setup-card__icon" aria-hidden="true">P</div>
         <div>
           <h2>Connect Plex</h2>
-          <p>Test the connection before Musearr stores it.</p>
+          <p>Sign in once. Musearr finds the reachable server automatically.</p>
         </div>
       </div>
 
-      <form className="connection-form" onSubmit={testConnection}>
-        <label>
-          Plex server address
-          <input
-            autoComplete="url"
-            inputMode="url"
-            onChange={(event) => updateField('baseUrl', event.target.value)}
-            placeholder="http://plex.local:32400"
-            required
-            type="url"
-            value={form.baseUrl}
-          />
-          <span className="field-hint">Use the server address available from this Musearr host.</span>
-        </label>
-        <label>
-          Plex token
-          <input
-            autoComplete="off"
-            onChange={(event) => updateField('token', event.target.value)}
-            placeholder="Your Plex token"
-            required
-            type="password"
-            value={form.token}
-          />
-          <span className="field-hint">Encrypted at rest; never returned to this browser.</span>
-        </label>
-        <button className="secondary-button" disabled={state !== 'idle'} type="submit">
-          {state === 'testing' ? 'Testing connection…' : 'Test connection'}
-        </button>
-      </form>
+      {!connection && (
+        <div className="connection-form">
+          <button
+            className="primary-button"
+            disabled={state !== 'idle'}
+            onClick={() => void connectPlex()}
+            type="button"
+          >
+            {state === 'authorising' ? 'Waiting for Plex…' : 'Sign in with Plex'}
+          </button>
+          <span className="field-hint">
+            Your Plex token is handled by the local Musearr API and encrypted when setup is saved.
+          </span>
+        </div>
+      )}
 
       {connection && (
         <form className="connection-form connection-form--complete" onSubmit={saveSetup}>
@@ -158,35 +165,33 @@ export function SetupConnectionForm() {
               <small>{connection.version ? `Plex Media Server ${connection.version}` : 'Plex Media Server'}</small>
             </span>
           </div>
+
           <fieldset>
             <legend>Music libraries to include</legend>
-            {connection.musicLibraries.length === 0 ? (
-              <p className="empty-library-note">Plex did not return a music library for this token.</p>
-            ) : (
-              <div className="library-options">
-                {connection.musicLibraries.map((library) => (
-                  <label className="library-option" key={library.id}>
-                    <input
-                      checked={selectedLibraryIds.includes(library.id)}
-                      onChange={() => toggleLibrary(library.id)}
-                      type="checkbox"
-                    />
-                    <span>{library.title}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            <div className="library-options">
+              {connection.musicLibraries.map((library) => (
+                <label className="library-option" key={library.id}>
+                  <input
+                    checked={selectedLibraryIds.includes(library.id)}
+                    onChange={() => toggleLibrary(library.id)}
+                    type="checkbox"
+                  />
+                  <span>{library.title}</span>
+                </label>
+              ))}
+            </div>
           </fieldset>
+
           <div className="owner-fields">
             <label>
               Local owner name
               <input
                 autoComplete="username"
                 minLength={3}
-                onChange={(event) => updateField('ownerUsername', event.target.value)}
+                onChange={(event) => setOwnerUsername(event.target.value)}
                 placeholder="musicroom"
                 required
-                value={form.ownerUsername}
+                value={ownerUsername}
               />
             </label>
             <label>
@@ -194,14 +199,15 @@ export function SetupConnectionForm() {
               <input
                 autoComplete="new-password"
                 minLength={12}
-                onChange={(event) => updateField('ownerPassword', event.target.value)}
+                onChange={(event) => setOwnerPassword(event.target.value)}
                 placeholder="At least 12 characters"
                 required
                 type="password"
-                value={form.ownerPassword}
+                value={ownerPassword}
               />
             </label>
           </div>
+
           <button className="primary-button" disabled={state !== 'idle'} type="submit">
             {state === 'saving' ? 'Saving securely…' : state === 'complete' ? 'All set' : 'Save and begin'}
           </button>

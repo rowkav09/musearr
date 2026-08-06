@@ -4,7 +4,7 @@ import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { getConfig, type MusearrConfig } from '@musearr/config'
 import {
   CompleteSetupRequestSchema,
@@ -46,6 +46,13 @@ import {
 import { PlexClient, PlexConnectionError, normalisePlexBaseUrl } from '@musearr/plex'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { PgBoss } from 'pg-boss'
+import {
+  consumePendingPlexConnection,
+  getPendingPlexConnection,
+  PlexAuthNetworkError,
+  pollPlexPin,
+  startPlexPin,
+} from './plex-auth.js'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -283,6 +290,50 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return reply.send(payload)
   })
 
+  const plexClientIdentifier = createHash('sha256')
+    .update(sessionSecret(config))
+    .digest('hex')
+    .slice(0, 32)
+
+  app.post('/api/v1/setup/plex-auth/start', async (_request, reply) => {
+    const existing = await getSetupStatus(database)
+    if (existing.configured) {
+      return sendProblem(
+        reply,
+        409,
+        'INSTANCE_ALREADY_CONFIGURED',
+        'This Musearr instance has already been configured.',
+      )
+    }
+
+    try {
+      return reply.send(await startPlexPin(plexClientIdentifier, config.MUSEARR_WEB_ORIGIN))
+    } catch (error) {
+      if (error instanceof PlexAuthNetworkError) {
+        return sendProblem(reply, 503, 'PLEX_NETWORK_UNAVAILABLE', error.message)
+      }
+      throw error
+    }
+  })
+
+  app.get('/api/v1/setup/plex-auth/status/:pinId', async (request, reply) => {
+    const pinId = Number((request.params as { pinId?: string }).pinId)
+    if (!Number.isSafeInteger(pinId) || pinId <= 0) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'The Plex sign-in request is invalid.')
+    }
+
+    try {
+      return reply.send(await pollPlexPin(pinId, plexClientIdentifier))
+    } catch (error) {
+      if (error instanceof PlexAuthNetworkError) {
+        return sendProblem(reply, 503, 'PLEX_NETWORK_UNAVAILABLE', error.message)
+      }
+      if (error instanceof PlexConnectionError) {
+        return sendProblem(reply, 422, error.code, error.message)
+      }
+      throw error
+    }
+  })
   app.post('/api/v1/setup/test-plex', async (request, reply) => {
     const parsed = PlexConnectionRequestSchema.safeParse(request.body)
     if (!parsed.success) {
@@ -350,7 +401,32 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
 
   app.post('/api/v1/setup/complete', async (request, reply) => {
-    const parsed = CompleteSetupRequestSchema.safeParse(request.body)
+    const submitted = request.body as Record<string, unknown> | null
+    const plexConnectionId =
+      submitted && typeof submitted.plexConnectionId === 'string'
+        ? submitted.plexConnectionId
+        : null
+    const pendingPlex = plexConnectionId
+      ? getPendingPlexConnection(plexConnectionId)
+      : null
+    if (plexConnectionId && !pendingPlex) {
+      return sendProblem(
+        reply,
+        410,
+        'PLEX_AUTH_EXPIRED',
+        'Plex sign-in expired. Connect Plex again.',
+      )
+    }
+
+    const parsed = CompleteSetupRequestSchema.safeParse(
+      pendingPlex
+        ? {
+            ...submitted,
+            baseUrl: pendingPlex.baseUrl,
+            token: pendingPlex.token,
+          }
+        : request.body,
+    )
     if (!parsed.success) {
       return sendProblem(
         reply,
@@ -419,6 +495,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         } catch (queueError) {
           app.log.error(queueError, 'Initial Plex sync could not be queued after setup')
         }
+      }
+      if (plexConnectionId) {
+        consumePendingPlexConnection(plexConnectionId)
       }
       setSession(reply, result.user)
       return reply.code(201).send({

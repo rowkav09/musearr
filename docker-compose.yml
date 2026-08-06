@@ -53,6 +53,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -74,12 +76,14 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [app]
+    networks: [app, default]
 
   worker:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -99,7 +103,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [app]
+    networks: [app, default]
 
   web:
     healthcheck:
@@ -128,6 +132,8 @@ services:
 
   caddy:
     image: caddy:2.10-alpine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     ports:
       - "${MUSEARR_PORT:-3000}:80"
