@@ -100,7 +100,7 @@ export function SetupConnectionForm() {
       }
       setForm((current) => ({ ...current, token: '', ownerPassword: '' }))
       setState('complete')
-      setMessage('Your music room is ready. Musearr will prepare your first sync next.')
+      setMessage('Your music room is ready. Your first sync has been queued; Musearr will show its recorded status on the dashboard.')
       window.setTimeout(() => router.push('/'), 900)
     } catch (error) {
       setState('idle')

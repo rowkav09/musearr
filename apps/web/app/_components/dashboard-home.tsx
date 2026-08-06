@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { SyncRecoveryState } from './sync-recovery-state'
 
 type Recommendation = {
   runId: string
@@ -377,16 +378,7 @@ function ListeningDashboard({
           empty="Genre affinity appears after Musearr sees plays in your library."
           tone="violet"
         />
-        <article className="insight-card insight-card--green">
-          <p className="eyebrow">LIBRARY CARE</p>
-          <h2>{syncHeading(overview.sync.status)}</h2>
-          <p className="insight-card__copy">
-            {overview.sync.errorSummary ??
-              (overview.sync.lastCompletedAt
-                ? `Last completed ${formatDate(overview.sync.lastCompletedAt)}. Scheduled reconciliation keeps the mirror honest.`
-                : 'Musearr will show sync freshness here as soon as the first library job completes.')}
-          </p>
-        </article>
+        <SyncRecoveryState />
       </section>
     </>
   )
@@ -526,23 +518,6 @@ function formatDate(value: string): string {
         year: 'numeric',
       }).format(date)
 }
-function syncHeading(status: DashboardOverview['sync']['status']): string {
-  switch (status) {
-    case 'completed':
-      return 'Library is in sync'
-    case 'running':
-      return 'Syncing your library'
-    case 'queued':
-      return 'Sync is queued'
-    case 'failed':
-      return 'Sync needs attention'
-    case 'cancelled':
-      return 'Sync was cancelled'
-    case 'not_started':
-      return 'First sync is waiting'
-  }
-}
-
 function deliveryLabel(delivery: DailyBrief['discordDelivery']): string {
   if (!delivery) return 'Saved locally'
   if (delivery.status === 'delivered') return 'Discord delivered'
