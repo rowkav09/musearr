@@ -1,13 +1,29 @@
 services:
+  bootstrap:
+    image: node:24-alpine
+    restart: "no"
+    environment:
+      MUSEARR_ENV_FILE: /workspace/.env
+      MUSEARR_SECRETS_DIR: /run/musearr
+    volumes:
+      - ./:/workspace
+      - musearr_config:/run/musearr
+      - ./infra/docker/bootstrap-config.sh:/bootstrap-config.sh:ro
+    command: ["sh", "/bootstrap-config.sh"]
+
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: musearr
       POSTGRES_USER: musearr
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-musearr}
+      POSTGRES_PASSWORD_FILE: /run/musearr/postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - musearr_config:/run/musearr:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U musearr -d musearr"]
       interval: 5s
@@ -19,8 +35,14 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.migrate
-    environment:
-      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
+    volumes:
+      - musearr_config:/run/musearr:ro
+    command:
+      - sh
+      - -ec
+      - |
+        export DATABASE_URL="postgresql://musearr:$(cat /run/musearr/postgres_password)@db:5432/musearr"
+        exec node packages/db/dist/migrate.js
     depends_on:
       db:
         condition: service_healthy
@@ -34,14 +56,21 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
       MUSEARR_API_HOST: 0.0.0.0
       MUSEARR_API_PORT: 4000
-      MUSEARR_WEB_ORIGIN: ${MUSEARR_WEB_ORIGIN:-http://localhost}
+      MUSEARR_WEB_ORIGIN: "http://${MUSEARR_HOST:-localhost}:${MUSEARR_PORT:-3000}"
       MUSEARR_TRUST_PROXY: "true"
-      MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
-      MUSEARR_SESSION_SECRET: ${MUSEARR_SESSION_SECRET:?Set MUSEARR_SESSION_SECRET in .env}
       MUSEARR_PLEX_WEBHOOK_SECRET: ${MUSEARR_PLEX_WEBHOOK_SECRET:-}
+    volumes:
+      - musearr_config:/run/musearr:ro
+    command:
+      - sh
+      - -ec
+      - |
+        export DATABASE_URL="postgresql://musearr:$(cat /run/musearr/postgres_password)@db:5432/musearr"
+        export MUSEARR_ENCRYPTION_KEY="$(cat /run/musearr/encryption_key)"
+        export MUSEARR_SESSION_SECRET="$(cat /run/musearr/session_secret)"
+        exec node apps/api/dist/index.js
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -54,12 +83,19 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://musearr:${POSTGRES_PASSWORD:-musearr}@db:5432/musearr
-      MUSEARR_ENCRYPTION_KEY: ${MUSEARR_ENCRYPTION_KEY:?Set MUSEARR_ENCRYPTION_KEY in .env}
       MUSEARR_RECONCILIATION_INTERVAL_MINUTES: ${MUSEARR_RECONCILIATION_INTERVAL_MINUTES:-360}
       MUSEARR_TIMEZONE: ${MUSEARR_TIMEZONE:-UTC}
       MUSEARR_DAILY_BRIEF_TIME: ${MUSEARR_DAILY_BRIEF_TIME:-08:00}
       MUSEARR_DISCORD_WEBHOOK_URL: ${MUSEARR_DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - musearr_config:/run/musearr:ro
+    command:
+      - sh
+      - -ec
+      - |
+        export DATABASE_URL="postgresql://musearr:$(cat /run/musearr/postgres_password)@db:5432/musearr"
+        export MUSEARR_ENCRYPTION_KEY="$(cat /run/musearr/encryption_key)"
+        exec node apps/worker/dist/index.js
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -94,7 +130,7 @@ services:
     image: caddy:2.10-alpine
     restart: unless-stopped
     ports:
-      - "${MUSEARR_PORT:-80}:80"
+      - "${MUSEARR_PORT:-3000}:80"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -113,3 +149,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  musearr_config:
