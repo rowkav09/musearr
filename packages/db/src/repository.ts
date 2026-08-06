@@ -1556,12 +1556,24 @@ function sanitiseSyncFailure(error: unknown): string {
 }
 
 function classifySyncFailure(error: unknown): SyncFailureClassification {
+  if (hasSyncFailureClassification(error)) return error.classification
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   if (message.includes('encryption') || message.includes('configuration') || message.includes('required before')) return 'configuration'
   if (message.includes('unauthor') || message.includes('forbidden') || message.includes('credential') || message.includes('token')) return 'authentication'
   if (message.includes('timeout') || message.includes('network') || message.includes('connect') || message.includes('unavailable')) return 'upstream_unavailable'
   if (message.includes('plex') || message.includes('response') || message.includes('parse')) return 'upstream_response'
   return 'unknown'
+}
+
+function hasSyncFailureClassification(error: unknown): error is { classification: SyncFailureClassification } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'classification' in error &&
+    ['configuration', 'authentication', 'upstream_unavailable', 'upstream_response', 'unknown'].includes(
+      (error as { classification?: unknown }).classification as string,
+    )
+  )
 }
 
 function safeFailureSummary(classification: SyncFailureClassification): string {
