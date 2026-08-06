@@ -1,0 +1,61 @@
+name: Create GitHub release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z or vX.Y.Z-beta.N tag to release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-release:
+    name: Verify release and publish notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Verify tag and package version
+        run: |
+          node <<'NODE'
+          const tag = process.env.RELEASE_TAG;
+          const version = require('./package.json').version;
+          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) {
+            throw new Error(`Release tag must be vX.Y.Z or a SemVer prerelease; received ${tag}`);
+          }
+          if (tag.slice(1) !== version) {
+            throw new Error(`Tag ${tag} does not match package.json version ${version}`);
+          }
+          console.log(`Validated release ${tag}.`);
+          NODE
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(release create "$RELEASE_TAG" --generate-notes --title "Musearr $RELEASE_TAG")
+          if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
+          gh "${args[@]}"
