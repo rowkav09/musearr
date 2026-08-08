@@ -284,6 +284,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   })
 
   app.post('/api/v1/setup/test-plex', async (request, reply) => {
+    const existing = await getSetupStatus(database)
+    if (existing.configured) {
+      return sendProblem(
+        reply,
+        409,
+        'INSTANCE_ALREADY_CONFIGURED',
+        'This Musearr instance has already been configured.',
+      )
+    }
+
     const parsed = PlexConnectionRequestSchema.safeParse(request.body)
     if (!parsed.success) {
       return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter a Plex server URL and token.')
