@@ -299,7 +299,6 @@ describe('Setup connection testing security', () => {
 
     // Stub PlexClient testConnection
     const testConnectionSpy = vi.spyOn(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
       (await import('@musearr/plex')).PlexClient.prototype,
       'testConnection',
     ).mockResolvedValue({
