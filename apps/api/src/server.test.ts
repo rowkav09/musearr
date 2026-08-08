@@ -270,3 +270,60 @@ describe('sync run observability', () => {
     expect(missing.json()).toMatchObject({ code: 'SYNC_RUN_NOT_FOUND' })
   })
 })
+
+describe('Setup connection testing security', () => {
+  it('blocks connection testing if already configured', async () => {
+    // getSetupStatus returns user IDs/configured status
+    const database = (async () => [{ id: 'some-user-id' }]) as unknown as Database
+    const app = createServer({ database })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/setup/test-plex',
+      payload: {
+        baseUrl: 'http://localhost:32400',
+        token: 'some-dummy-token-that-is-long-enough',
+      },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({
+      code: 'INSTANCE_ALREADY_CONFIGURED',
+      detail: 'This Musearr instance has already been configured.',
+    })
+  })
+
+  it('allows connection testing if unconfigured', async () => {
+    const database = (async () => []) as unknown as Database
+    const app = createServer({ database })
+
+    // Stub PlexClient testConnection
+    const testConnectionSpy = vi.spyOn(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+      (await import('@musearr/plex')).PlexClient.prototype,
+      'testConnection',
+    ).mockResolvedValue({
+      machineIdentifier: 'machine-id',
+      serverName: 'Server Name',
+      version: '1.0.0',
+      musicLibraries: [],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/setup/test-plex',
+      payload: {
+        baseUrl: 'http://localhost:32400',
+        token: 'some-dummy-token-that-is-long-enough',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      machineIdentifier: 'machine-id',
+      serverName: 'Server Name',
+    })
+
+    testConnectionSpy.mockRestore()
+  })
+})
