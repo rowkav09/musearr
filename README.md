@@ -55,7 +55,7 @@ The browser uses same-origin API routes. The API is the only gateway to Plex and
    docker compose up --build
    ```
 
-5. Open the dashboard at `http://localhost:3000` and complete the local setup flow.
+5. Open the dashboard at `http://localhost:5530` and complete the local setup flow.
 
 For development, use Node.js 24, `npm install`, `docker compose up db -d`, `npm run migrate`, then run `npm run dev:web`, `npm run dev:api`, and `npm run dev:worker` in separate terminals.
 

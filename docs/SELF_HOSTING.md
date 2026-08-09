@@ -31,9 +31,9 @@ Do not commit `.env`, reuse secrets across instances, or share Plex tokens or we
    docker compose up --build
    ```
 
-4. Open `http://localhost:3000` and complete the local owner setup.
+4. Open `http://localhost:5530` and complete the local owner setup.
 
-Compose starts PostgreSQL, applies forward-only migrations, and then starts the API, worker, web app, and Caddy proxy. The API listens on port `4000` in development; the web app proxies `/api/v1/*` locally.
+Compose starts PostgreSQL, applies forward-only migrations, and then starts the API, worker, web app, and Caddy proxy. The API listens on port `5540` in development; the web app proxies `/api/v1/*` locally.
 
 For local code development, use Node.js 24, run `npm install`, start PostgreSQL with `docker compose up db -d`, apply `npm run migrate`, then run `npm run dev:web`, `npm run dev:api`, and `npm run dev:worker` in separate terminals.
 
