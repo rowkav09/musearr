@@ -147,3 +147,12 @@ button { cursor: pointer; }
   .insight-card { min-height: 0; }
   .daily-brief-card__intro { display: grid; padding: 23px 21px; }.daily-brief-card__intro h3 { font-size: 23px; }.daily-brief-card__items { grid-template-columns: 1fr; }.daily-brief-item { min-height: 0; border-right: 0; border-bottom: 1px solid #eee8e0; }.daily-brief-item:last-child { border-bottom: 0; }
 }
+
+
+.plex-signin-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 45px; margin-top: 4px; border: 0; border-radius: 9px; background: #e5a00d; color: #1f1300; font-size: 13px; font-weight: 760; cursor: pointer; transition: background .16s ease, transform .16s ease; }
+.plex-signin-button:hover { background: #cb8e0b; transform: translateY(-1px); }
+.plex-signin-button:disabled { cursor: not-allowed; opacity: .65; transform: none; }
+.form-divider { display: flex; align-items: center; gap: 10px; margin: 22px 0 6px; color: #a89d95; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.form-divider::before, .form-divider::after { content: ''; flex: 1; height: 1px; background: #e6ded6; }
+.server-picker { display: grid; gap: 8px; margin: 12px 0 0; color: #4e464d; font-size: 12px; font-weight: 700; }
+.server-picker select { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; color: var(--ink); font-size: 14px; font-weight: 500; }

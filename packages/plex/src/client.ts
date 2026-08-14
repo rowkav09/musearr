@@ -126,6 +126,20 @@ export type PlexPlaylistItemPage = {
   skipped: number
 }
 
+const PLEX_TV_BASE_URL = 'https://plex.tv'
+
+export type PlexPin = {
+  id: number
+  code: string
+  authToken: string | null
+}
+
+export type PlexAuthorizedServer = {
+  name: string
+  machineIdentifier: string
+  baseUrl: string
+}
+
 export class PlexConnectionError extends Error {
   public readonly code: 'UNREACHABLE' | 'UNAUTHENTICATED' | 'INVALID_RESPONSE'
 
@@ -276,6 +290,90 @@ export class PlexClient {
       clearTimeout(timeout)
     }
   }
+}
+
+async function plexTvRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8_000)
+
+  try {
+    const response = await fetch(`${PLEX_TV_BASE_URL}${path}`, {
+      ...init,
+      headers: { ...PLEX_HEADERS, ...(init.headers as Record<string, string> | undefined) },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach plex.tv.')
+    }
+    return (await response.json()) as T
+  } catch (error) {
+    if (error instanceof PlexConnectionError) {
+      throw error
+    }
+    throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach plex.tv.')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Starts a Plex PIN-based sign-in (https://plex.tv/api/v2/pins). The
+ * returned code is embedded in the URL from {@link plexPinAuthUrl}; once the
+ * user approves it at app.plex.tv, {@link checkPlexPin} resolves an
+ * authToken scoped to their account.
+ */
+export async function createPlexPin(): Promise<PlexPin> {
+  const payload = await plexTvRequest<{ id: number; code: string; authToken: string | null }>('/api/v2/pins', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'strong=true',
+  })
+  return { id: payload.id, code: payload.code, authToken: payload.authToken ?? null }
+}
+
+export function plexPinAuthUrl(code: string): string {
+  const clientId = encodeURIComponent(PLEX_HEADERS['X-Plex-Client-Identifier'])
+  const product = encodeURIComponent(PLEX_HEADERS['X-Plex-Product'])
+  return `https://app.plex.tv/auth#?clientID=${clientId}&code=${encodeURIComponent(code)}&context[device][product]=${product}`
+}
+
+export async function checkPlexPin(id: number): Promise<{ authToken: string | null }> {
+  const payload = await plexTvRequest<{ authToken: string | null }>(`/api/v2/pins/${id}`)
+  return { authToken: payload.authToken ?? null }
+}
+
+/**
+ * Lists the Plex Media Servers available to an account token, picking a
+ * non-relay connection (preferring one on the local network) for each.
+ */
+export async function listPlexServersForToken(token: string): Promise<PlexAuthorizedServer[]> {
+  const payload = await plexTvRequest<
+    Array<{
+      provides?: string
+      name?: string
+      clientIdentifier?: string
+      connections?: Array<{ uri?: string; local?: boolean; relay?: boolean }>
+    }>
+  >('/api/v2/resources?includeHttps=1', {
+    headers: { 'X-Plex-Token': token },
+  })
+
+  const servers: PlexAuthorizedServer[] = []
+  for (const resource of payload) {
+    if (!resource.provides?.split(',').includes('server') || !resource.clientIdentifier || !resource.name) {
+      continue
+    }
+    const connections = resource.connections ?? []
+    const preferred =
+      connections.find((connection) => connection.local && !connection.relay) ??
+      connections.find((connection) => !connection.relay) ??
+      connections[0]
+    if (!preferred?.uri) {
+      continue
+    }
+    servers.push({ name: resource.name, machineIdentifier: resource.clientIdentifier, baseUrl: preferred.uri })
+  }
+  return servers
 }
 
 function normaliseTrack(

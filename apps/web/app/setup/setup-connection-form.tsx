@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 type MusicLibrary = { id: string; title: string; type: 'artist' }
@@ -11,14 +11,21 @@ type PlexConnection = {
   musicLibraries: MusicLibrary[]
 }
 
+type PlexAuthorizedServer = { name: string; machineIdentifier: string; baseUrl: string }
+type PlexPinCreateResponse = { id: number; code: string; authUrl: string }
+type PlexPinStatusResponse = { authToken: string | null; servers: PlexAuthorizedServer[] }
+
 type FormIssue = { detail?: string }
 
 const initialForm = {
-  baseUrl: '',
+  baseUrl: 'http://host.docker.internal:32400',
   token: '',
   ownerUsername: '',
   ownerPassword: '',
 }
+
+const PIN_POLL_INTERVAL_MS = 2_000
+const PIN_TIMEOUT_MS = 2 * 60 * 1_000
 
 async function getIssue(response: Response): Promise<string> {
   try {
@@ -37,6 +44,21 @@ export function SetupConnectionForm() {
   const [state, setState] = useState<'idle' | 'testing' | 'saving' | 'complete'>('idle')
   const [message, setMessage] = useState<string | null>(null)
 
+  const [pinState, setPinState] = useState<'idle' | 'waiting' | 'error'>('idle')
+  const [pinMessage, setPinMessage] = useState<string | null>(null)
+  const [availableServers, setAvailableServers] = useState<PlexAuthorizedServer[]>([])
+  const pollHandle = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollGeneration = useRef(0)
+
+  useEffect(() => {
+    return () => {
+      pollGeneration.current += 1
+      if (pollHandle.current) {
+        clearTimeout(pollHandle.current)
+      }
+    }
+  }, [])
+
   function updateField(field: keyof typeof initialForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }))
     if (field === 'baseUrl' || field === 'token') {
@@ -44,6 +66,108 @@ export function SetupConnectionForm() {
       setSelectedLibraryIds([])
     }
     setMessage(null)
+  }
+
+  function stopPinPolling() {
+    pollGeneration.current += 1
+    if (pollHandle.current) {
+      clearTimeout(pollHandle.current)
+      pollHandle.current = null
+    }
+  }
+
+  async function signInWithPlex() {
+    stopPinPolling()
+    setAvailableServers([])
+    setPinState('waiting')
+    setPinMessage('Waiting for you to approve Musearr on plex.tv…')
+
+    let pin: PlexPinCreateResponse
+    try {
+      const response = await fetch('/api/v1/setup/plex-pin', { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await getIssue(response))
+      }
+      pin = (await response.json()) as PlexPinCreateResponse
+    } catch (error) {
+      setPinState('error')
+      setPinMessage(error instanceof Error ? error.message : 'Musearr could not start Plex sign-in.')
+      return
+    }
+
+    const popup = window.open(pin.authUrl, 'musearr-plex-signin', 'width=480,height=720')
+    if (!popup) {
+      setPinMessage('Approve Musearr for your Plex account, then come back here — this tab is waiting.')
+    }
+
+    const generation = ++pollGeneration.current
+    const deadline = Date.now() + PIN_TIMEOUT_MS
+
+    const poll = async () => {
+      if (generation !== pollGeneration.current) {
+        return
+      }
+      if (Date.now() > deadline) {
+        setPinState('error')
+        setPinMessage('Plex sign-in timed out. Try again.')
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/v1/setup/plex-pin/${pin.id}`)
+        if (!response.ok) {
+          throw new Error(await getIssue(response))
+        }
+        const status = (await response.json()) as PlexPinStatusResponse
+        if (generation !== pollGeneration.current) {
+          return
+        }
+
+        if (!status.authToken) {
+          pollHandle.current = setTimeout(poll, PIN_POLL_INTERVAL_MS)
+          return
+        }
+
+        popup?.close()
+        setPinState('idle')
+        setForm((current) => ({
+          ...current,
+          token: status.authToken as string,
+          baseUrl: status.servers[0]?.baseUrl ?? current.baseUrl,
+        }))
+        setConnection(null)
+        setSelectedLibraryIds([])
+
+        if (status.servers.length === 0) {
+          setPinMessage("Signed in, but Plex didn't return a server for this account — check the address and use Test connection.")
+          setAvailableServers([])
+        } else if (status.servers.length === 1) {
+          setPinMessage(`Signed in. Using ${status.servers[0]?.name ?? 'your Plex server'} — test the connection below.`)
+          setAvailableServers([])
+        } else {
+          setPinMessage('Signed in. Choose which Plex server to use, then test the connection.')
+          setAvailableServers(status.servers)
+        }
+      } catch (error) {
+        if (generation !== pollGeneration.current) {
+          return
+        }
+        setPinState('error')
+        setPinMessage(error instanceof Error ? error.message : 'Musearr could not check Plex sign-in status.')
+      }
+    }
+
+    void poll()
+  }
+
+  function chooseServer(machineIdentifier: string) {
+    const server = availableServers.find((candidate) => candidate.machineIdentifier === machineIdentifier)
+    if (!server) {
+      return
+    }
+    setForm((current) => ({ ...current, baseUrl: server.baseUrl }))
+    setConnection(null)
+    setSelectedLibraryIds([])
   }
 
   async function testConnection(event: FormEvent<HTMLFormElement>) {
@@ -117,6 +241,37 @@ export function SetupConnectionForm() {
           <p>Test the connection before Musearr stores it.</p>
         </div>
       </div>
+
+      <button
+        className="plex-signin-button"
+        disabled={pinState === 'waiting'}
+        onClick={() => void signInWithPlex()}
+        type="button"
+      >
+        {pinState === 'waiting' ? 'Waiting for Plex…' : 'Sign in with Plex'}
+      </button>
+      {pinMessage && (
+        <p className={pinState === 'error' ? 'form-message' : 'form-message form-message--success'} role="status">
+          {pinMessage}
+        </p>
+      )}
+      {availableServers.length > 1 && (
+        <label className="server-picker">
+          Plex server
+          <select onChange={(event) => chooseServer(event.target.value)} value="">
+            <option disabled value="">
+              Choose a server…
+            </option>
+            {availableServers.map((server) => (
+              <option key={server.machineIdentifier} value={server.machineIdentifier}>
+                {server.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <div className="form-divider">or enter it manually</div>
 
       <form className="connection-form" onSubmit={testConnection}>
         <label>

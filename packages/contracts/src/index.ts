@@ -38,6 +38,23 @@ export const PlexConnectionResultSchema = z.object({
   musicLibraries: z.array(PlexLibrarySectionSchema),
 })
 
+export const PlexPinCreateResponseSchema = z.object({
+  id: z.number().int().positive(),
+  code: z.string().min(1),
+  authUrl: z.string().url(),
+})
+
+export const PlexAuthorizedServerSchema = z.object({
+  name: z.string(),
+  machineIdentifier: z.string(),
+  baseUrl: z.string().url(),
+})
+
+export const PlexPinStatusResponseSchema = z.object({
+  authToken: z.string().nullable(),
+  servers: z.array(PlexAuthorizedServerSchema),
+})
+
 const PlexWebhookSectionIdSchema = z
   .union([z.string().trim().min(1).max(64), z.number().int().nonnegative()])
   .transform(String)
@@ -196,6 +213,9 @@ export type SetupStatus = z.infer<typeof SetupStatusSchema>
 export type PlexConnectionRequest = z.infer<typeof PlexConnectionRequestSchema>
 export type PlexLibrarySection = z.infer<typeof PlexLibrarySectionSchema>
 export type PlexConnectionResult = z.infer<typeof PlexConnectionResultSchema>
+export type PlexPinCreateResponse = z.infer<typeof PlexPinCreateResponseSchema>
+export type PlexAuthorizedServer = z.infer<typeof PlexAuthorizedServerSchema>
+export type PlexPinStatusResponse = z.infer<typeof PlexPinStatusResponseSchema>
 export type PlexWebhookPayload = z.infer<typeof PlexWebhookPayloadSchema>
 export type CompleteSetupRequest = z.infer<typeof CompleteSetupRequestSchema>
 export type QueueLibrarySyncRequest = z.infer<typeof QueueLibrarySyncRequestSchema>

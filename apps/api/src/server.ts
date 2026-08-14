@@ -13,6 +13,8 @@ import {
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   PlexConnectionRequestSchema,
+  PlexPinCreateResponseSchema,
+  PlexPinStatusResponseSchema,
   PlexWebhookPayloadSchema,
   QueueLibrarySyncRequestSchema,
   QueueRecommendationRunRequestSchema,
@@ -43,7 +45,15 @@ import {
   startJobQueue,
   type Database,
 } from '@musearr/db'
-import { PlexClient, PlexConnectionError, normalisePlexBaseUrl } from '@musearr/plex'
+import {
+  checkPlexPin,
+  createPlexPin,
+  listPlexServersForToken,
+  PlexClient,
+  PlexConnectionError,
+  plexPinAuthUrl,
+  normalisePlexBaseUrl,
+} from '@musearr/plex'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { PgBoss } from 'pg-boss'
 
@@ -305,6 +315,66 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     } catch (error) {
       if (error instanceof PlexConnectionError) {
         return sendProblem(reply, error.code === 'UNAUTHENTICATED' ? 401 : 422, error.code, error.message)
+      }
+      throw error
+    }
+  })
+
+  app.post('/api/v1/setup/plex-pin', async (_request, reply) => {
+    const existing = await getSetupStatus(database)
+    if (existing.configured) {
+      return sendProblem(
+        reply,
+        409,
+        'INSTANCE_ALREADY_CONFIGURED',
+        'This Musearr instance has already been configured.',
+      )
+    }
+
+    try {
+      const pin = await createPlexPin()
+      return reply.send(
+        PlexPinCreateResponseSchema.parse({
+          id: pin.id,
+          code: pin.code,
+          authUrl: plexPinAuthUrl(pin.code),
+        }),
+      )
+    } catch (error) {
+      if (error instanceof PlexConnectionError) {
+        return sendProblem(reply, 502, error.code, 'Musearr could not start Plex sign-in. Try again.')
+      }
+      throw error
+    }
+  })
+
+  app.get('/api/v1/setup/plex-pin/:id', async (request, reply) => {
+    const existing = await getSetupStatus(database)
+    if (existing.configured) {
+      return sendProblem(
+        reply,
+        409,
+        'INSTANCE_ALREADY_CONFIGURED',
+        'This Musearr instance has already been configured.',
+      )
+    }
+
+    const rawId = (request.params as { id?: unknown }).id
+    const id = typeof rawId === 'string' ? Number(rawId) : NaN
+    if (!Number.isInteger(id) || id <= 0) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid Plex sign-in id.')
+    }
+
+    try {
+      const { authToken } = await checkPlexPin(id)
+      if (!authToken) {
+        return reply.send(PlexPinStatusResponseSchema.parse({ authToken: null, servers: [] }))
+      }
+      const servers = await listPlexServersForToken(authToken)
+      return reply.send(PlexPinStatusResponseSchema.parse({ authToken, servers }))
+    } catch (error) {
+      if (error instanceof PlexConnectionError) {
+        return sendProblem(reply, 502, error.code, 'Musearr could not check Plex sign-in status. Try again.')
       }
       throw error
     }
