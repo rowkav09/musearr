@@ -1,0 +1,24 @@
+# Single-container "arr-style" deployment of Musearr -- an alternative to
+# docker-compose.yml's 6-service stack, not a replacement for it. This file
+# defines exactly one service, on its own named volume, so it can run
+# alongside an existing Musearr stack (or any other containers) without
+# touching them. Use a distinct project name if you also run
+# docker-compose.yml, e.g.:
+#   docker compose -p musearr-arr -f docker-compose.arr.yml up --build -d
+services:
+  musearr:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.arr
+    image: musearr-arr:local
+    container_name: musearr-arr
+    restart: unless-stopped
+    env_file:
+      - .env.arr
+    ports:
+      - "${MUSEARR_ARR_PORT:-8600}:8080"
+    volumes:
+      - musearr_arr_data:/config
+
+volumes:
+  musearr_arr_data:
