@@ -183,6 +183,62 @@ export const DailyBriefResponseSchema = z.object({
   brief: DailyBriefSchema.nullable(),
 })
 
+export const ScrobbleItemSchema = z.object({
+  artistName: z.string().trim().min(1),
+  trackTitle: z.string().trim().min(1),
+  albumTitle: z.string().trim().optional(),
+  occurredAt: z.string().datetime(),
+})
+
+export const ScrobbleImportRequestSchema = z.object({
+  scrobbles: z.array(ScrobbleItemSchema).min(1).max(5000),
+})
+
+export const ScrobbleImportResponseSchema = z.object({
+  importedCount: z.number().int().nonnegative(),
+  matchedTracksCount: z.number().int().nonnegative(),
+  unmatchedCount: z.number().int().nonnegative(),
+})
+
+export type ScrobbleItem = z.infer<typeof ScrobbleItemSchema>
+export type ScrobbleImportRequest = z.infer<typeof ScrobbleImportRequestSchema>
+export type ScrobbleImportResponse = z.infer<typeof ScrobbleImportResponseSchema>
+
+export const PlaylistProposalItemSchema = z.object({
+  trackId: z.string().uuid(),
+  trackTitle: z.string(),
+  artistName: z.string(),
+  albumTitle: z.string(),
+  durationMs: z.number().nullable(),
+  plexRatingKey: z.string(),
+  position: z.number().int().nonnegative(),
+})
+
+export const PlaylistProposalSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  kind: z.string(),
+  algorithmVersion: z.string(),
+  status: z.enum(['draft', 'exported', 'dismissed']),
+  plexPlaylistRatingKey: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  items: z.array(PlaylistProposalItemSchema),
+})
+
+export const CreatePlaylistProposalRequestSchema = z.object({
+  kind: RecommendationKindSchema.default('daily_mix'),
+  title: z.string().trim().min(1).max(280).optional(),
+  limit: z.number().int().min(5).max(100).default(20),
+})
+
+export const PlaylistProposalListResponseSchema = z.object({
+  proposals: z.array(PlaylistProposalSchema),
+})
+
+export type PlaylistProposalItem = z.infer<typeof PlaylistProposalItemSchema>
+export type PlaylistProposal = z.infer<typeof PlaylistProposalSchema>
+export type CreatePlaylistProposalRequest = z.infer<typeof CreatePlaylistProposalRequestSchema>
+
 export const ListeningInsightQuerySchema = z.object({
   days: z.coerce.number().int().min(7).max(90).default(30),
 })

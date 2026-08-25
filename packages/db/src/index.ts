@@ -25,6 +25,11 @@ export {
   getSyncRun,
   listSyncRuns,
   insertInitialSetup,
+  importScrobbles,
+  createPlaylistProposal,
+  getPlaylistProposal,
+  listPlaylistProposals,
+  markPlaylistProposalExported,
   rebuildListeningRollups,
   updateSyncProgress,
   upsertLibraryTracks,
@@ -65,6 +70,10 @@ export type {
   SetupStatusRecord,
   SyncFailureClassification,
   SyncProgress,
+  ScrobbleImportItem,
+  ScrobbleImportResult,
+  PlaylistProposalItemRecord,
+  PlaylistProposalRecord,
 } from './repository.js'
 export type { DailyBriefJob, LibrarySyncJob, PlaylistSyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
 export * from './schema.js'
