@@ -217,6 +217,33 @@ export class PlexClient {
       }))
   }
 
+  async createPlaylist(title: string, trackRatingKeys: string[]): Promise<{ plexRatingKey: string; title: string }> {
+    if (trackRatingKeys.length === 0) {
+      throw new PlexConnectionError('INVALID_RESPONSE', 'Cannot create an empty playlist.')
+    }
+    const identity = await this.identity()
+    const machineIdentifier = identity.MediaContainer?.machineIdentifier
+    if (!machineIdentifier) {
+      throw new PlexConnectionError('INVALID_RESPONSE', 'Plex did not return a server identity.')
+    }
+
+    const uriList = trackRatingKeys
+      .map((key) => `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${key}`)
+      .join(',')
+
+    const path = `/playlists?type=audio&title=${encodeURIComponent(title)}&smart=0&uri=${encodeURIComponent(uriList)}`
+    const payload = await this.request<PlexPlaylistResponse>(path, { method: 'POST' })
+    const created = payload.MediaContainer?.Metadata?.[0]
+    if (!created?.ratingKey) {
+      throw new PlexConnectionError('INVALID_RESPONSE', 'Plex failed to create playlist.')
+    }
+
+    return {
+      plexRatingKey: String(created.ratingKey),
+      title: created.title ?? title,
+    }
+  }
+
   async playlistItems(playlistId: string, offset: number, size: number): Promise<PlexPlaylistItemPage> {
     const start = Math.max(0, Math.floor(offset))
     const pageSize = Math.min(500, Math.max(1, Math.floor(size)))
@@ -260,15 +287,17 @@ export class PlexClient {
       }))
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 8_000)
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
         headers: {
           ...PLEX_HEADERS,
           'X-Plex-Token': this.token,
+          ...(init.headers as Record<string, string> | undefined),
         },
         signal: controller.signal,
       })

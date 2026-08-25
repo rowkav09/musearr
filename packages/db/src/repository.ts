@@ -110,6 +110,8 @@ export type RecommendationCandidateRecord = {
   lastPlayedAt: string | null
   rating: number | null
   playCount: number
+  durationMs: number | null
+  plexRatingKey: string
 }
 
 export type PersistedRecommendation = {
@@ -165,6 +167,324 @@ export type DashboardOverview = {
     errorSummary: string | null
   }
   dailyMix: LatestRecommendation[]
+}
+
+export type ScrobbleImportItem = {
+  artistName: string
+  trackTitle: string
+  albumTitle?: string
+  occurredAt: string
+}
+
+export type ScrobbleImportResult = {
+  importedCount: number
+  matchedTracksCount: number
+  unmatchedCount: number
+}
+
+export type PlaylistProposalItemRecord = {
+  trackId: string
+  trackTitle: string
+  artistName: string
+  albumTitle: string
+  durationMs: number | null
+  plexRatingKey: string
+  position: number
+}
+
+export type PlaylistProposalRecord = {
+  id: string
+  title: string
+  kind: string
+  algorithmVersion: string
+  status: 'draft' | 'exported' | 'dismissed'
+  plexPlaylistRatingKey: string | null
+  createdAt: string
+  items: PlaylistProposalItemRecord[]
+}
+
+export async function createPlaylistProposal(
+  database: Database,
+  input: {
+    userId: string
+    title: string
+    kind: string
+    algorithmVersion: string
+    trackIds: string[]
+  },
+): Promise<PlaylistProposalRecord> {
+  return database.begin(async (transaction) => {
+    const rows = await transaction<Array<{ id: string; created_at: Date | string }>>`
+      INSERT INTO playlist_proposals (user_id, title, kind, algorithm_version, status)
+      VALUES (${input.userId}, ${input.title}, ${input.kind}, ${input.algorithmVersion}, 'draft')
+      RETURNING id, created_at
+    `
+    const proposal = rows[0]
+    if (!proposal) {
+      throw new Error('Failed to create playlist proposal.')
+    }
+
+    for (const [position, trackId] of input.trackIds.entries()) {
+      await transaction`
+        INSERT INTO playlist_proposal_items (proposal_id, position, track_id)
+        VALUES (${proposal.id}, ${position}, ${trackId})
+      `
+    }
+
+    const createdRecord = await getPlaylistProposal(transaction as unknown as Database, proposal.id, input.userId)
+    if (!createdRecord) {
+      throw new Error('Failed to retrieve created playlist proposal.')
+    }
+    return createdRecord
+  })
+}
+
+export async function getPlaylistProposal(
+  database: Database,
+  proposalId: string,
+  userId: string,
+): Promise<PlaylistProposalRecord | null> {
+  const rows = await database<
+    Array<{
+      id: string
+      title: string
+      kind: string
+      algorithm_version: string
+      status: 'draft' | 'exported' | 'dismissed'
+      plex_playlist_rating_key: string | null
+      created_at: Date | string
+    }>
+  >`
+    SELECT id, title, kind, algorithm_version, status, plex_playlist_rating_key, created_at
+    FROM playlist_proposals
+    WHERE id = ${proposalId}::uuid AND user_id = ${userId}::uuid
+    LIMIT 1
+  `
+  const proposal = rows[0]
+  if (!proposal) {
+    return null
+  }
+
+  const itemRows = await database<
+    Array<{
+      track_id: string
+      track_title: string
+      artist_name: string
+      album_title: string
+      duration_ms: number | null
+      plex_rating_key: string
+      position: number
+    }>
+  >`
+    SELECT
+      ppi.track_id,
+      t.title AS track_title,
+      artist.name AS artist_name,
+      album.title AS album_title,
+      t.duration_ms,
+      t.plex_rating_key,
+      ppi.position
+    FROM playlist_proposal_items ppi
+    JOIN tracks t ON t.id = ppi.track_id
+    JOIN albums album ON album.id = t.album_id
+    JOIN artists artist ON artist.id = album.artist_id
+    WHERE ppi.proposal_id = ${proposal.id}::uuid
+    ORDER BY ppi.position ASC
+  `
+
+  return {
+    id: proposal.id,
+    title: proposal.title,
+    kind: proposal.kind,
+    algorithmVersion: proposal.algorithm_version,
+    status: proposal.status,
+    plexPlaylistRatingKey: proposal.plex_playlist_rating_key,
+    createdAt: serialiseTimestamp(proposal.created_at) ?? new Date().toISOString(),
+    items: itemRows.map((item) => ({
+      trackId: item.track_id,
+      trackTitle: item.track_title,
+      artistName: item.artist_name,
+      albumTitle: item.album_title,
+      durationMs: item.duration_ms,
+      plexRatingKey: item.plex_rating_key,
+      position: item.position,
+    })),
+  }
+}
+
+export async function listPlaylistProposals(
+  database: Database,
+  userId: string,
+): Promise<PlaylistProposalRecord[]> {
+  const rows = await database<Array<{ id: string }>>`
+    SELECT id
+    FROM playlist_proposals
+    WHERE user_id = ${userId}::uuid
+    ORDER BY created_at DESC
+  `
+  const proposals: PlaylistProposalRecord[] = []
+  for (const row of rows) {
+    const proposal = await getPlaylistProposal(database, row.id, userId)
+    if (proposal) {
+      proposals.push(proposal)
+    }
+  }
+  return proposals
+}
+
+export async function markPlaylistProposalExported(
+  database: Database,
+  proposalId: string,
+  userId: string,
+  plexPlaylistRatingKey: string,
+): Promise<void> {
+  await database`
+    UPDATE playlist_proposals
+    SET status = 'exported',
+        plex_playlist_rating_key = ${plexPlaylistRatingKey},
+        updated_at = NOW()
+    WHERE id = ${proposalId}::uuid AND user_id = ${userId}::uuid
+  `
+}
+
+export async function importScrobbles(
+  database: Database,
+  userId: string,
+  scrobbles: ScrobbleImportItem[],
+): Promise<ScrobbleImportResult> {
+  if (scrobbles.length === 0) {
+    return { importedCount: 0, matchedTracksCount: 0, unmatchedCount: 0 }
+  }
+
+  // Find user's Plex server ID
+  const servers = await database<Array<{ id: string }>>`
+    SELECT ps.id
+    FROM plex_servers ps
+    LIMIT 1
+  `
+  const plexServerId = servers[0]?.id
+  if (!plexServerId) {
+    throw new Error('NO_PLEX_SERVER_CONFIGURED')
+  }
+
+  // Get user timezone for rollup rebuild if needed
+  const timezone = await getUserTimezone(database, userId)
+
+  // Fetch all mirrored tracks for matching
+  const catalog = await database<
+    Array<{
+      track_id: string
+      artist_name: string
+      track_title: string
+      album_title: string
+      duration_ms: number | null
+    }>
+  >`
+    SELECT
+      t.id AS track_id,
+      LOWER(artist.name) AS artist_name,
+      LOWER(t.title) AS track_title,
+      LOWER(album.title) AS album_title,
+      t.duration_ms
+    FROM tracks t
+    JOIN albums album ON album.id = t.album_id
+    JOIN artists artist ON artist.id = album.artist_id
+    WHERE artist.plex_server_id = ${plexServerId}::uuid
+  `
+
+  type CatalogTrack = (typeof catalog)[number]
+  const catalogMap = new Map<string, CatalogTrack[]>()
+
+  for (const item of catalog) {
+    const key = `${item.artist_name}|||${item.track_title}`
+    const existing = catalogMap.get(key) ?? []
+    existing.push(item)
+    catalogMap.set(key, existing)
+  }
+
+  let importedCount = 0
+  let matchedTracksCount = 0
+  let unmatchedCount = 0
+  const matchedTrackIds = new Set<string>()
+
+  await database.begin(async (transaction) => {
+    for (const scrobble of scrobbles) {
+      const artistNorm = scrobble.artistName.trim().toLowerCase()
+      const trackNorm = scrobble.trackTitle.trim().toLowerCase()
+      const albumNorm = scrobble.albumTitle ? scrobble.albumTitle.trim().toLowerCase() : null
+
+      const candidates = catalogMap.get(`${artistNorm}|||${trackNorm}`)
+      if (!candidates || candidates.length === 0) {
+        unmatchedCount++
+        continue
+      }
+
+      let matched = candidates[0]!
+      if (albumNorm && candidates.length > 1) {
+        const exactAlbum = candidates.find((c) => c.album_title === albumNorm)
+        if (exactAlbum) {
+          matched = exactAlbum
+        }
+      }
+
+      matchedTrackIds.add(matched.track_id)
+      const occurredAt = new Date(scrobble.occurredAt)
+      const sourceEventId = `scrobble:${userId}:${matched.track_id}:${occurredAt.getTime()}`
+
+      const inserted = await transaction`
+        INSERT INTO listening_events (
+          user_id, track_id, plex_server_id, source_event_id, event_type, occurred_at,
+          play_count_delta, rating_before, rating_after, duration_ms, time_precision, metadata
+        ) VALUES (
+          ${userId},
+          ${matched.track_id},
+          ${plexServerId},
+          ${sourceEventId},
+          'play_count_delta',
+          ${occurredAt.toISOString()},
+          1,
+          NULL,
+          NULL,
+          ${matched.duration_ms},
+          'exact',
+          ${JSON.stringify({ source: 'scrobble_import' })}::jsonb
+        ) ON CONFLICT (source_event_id) DO NOTHING
+        RETURNING id
+      `
+
+      if (inserted.length > 0) {
+        importedCount++
+        // Update user_item_state play count and last_played_at
+        await transaction`
+          INSERT INTO user_item_state (user_id, entity_type, entity_id, rating, play_count, last_played_at)
+          VALUES (
+            ${userId},
+            'track',
+            ${matched.track_id},
+            NULL,
+            1,
+            ${occurredAt.toISOString()}
+          )
+          ON CONFLICT (user_id, entity_type, entity_id) DO UPDATE
+          SET play_count = user_item_state.play_count + 1,
+              last_played_at = GREATEST(COALESCE(user_item_state.last_played_at, '1970-01-01'::timestamptz), EXCLUDED.last_played_at),
+              updated_at = NOW()
+        `
+      }
+    }
+  })
+
+  matchedTracksCount = matchedTrackIds.size
+
+  if (importedCount > 0) {
+    await rebuildListeningRollups(database, userId, timezone)
+  }
+
+  return {
+    importedCount,
+    matchedTracksCount,
+    unmatchedCount,
+  }
 }
 
 export type ListeningCoverage = 'none' | 'exact' | 'observed' | 'mixed'
@@ -866,6 +1186,8 @@ export async function getRecommendationCandidates(
       last_played_at: Date | string | null
       rating: string | number | null
       play_count: number | null
+      duration_ms: number | null
+      plex_rating_key: string
     }>
   >`
     SELECT
@@ -879,7 +1201,9 @@ export async function getRecommendationCandidates(
       t.added_at,
       state.last_played_at,
       state.rating,
-      state.play_count
+      state.play_count,
+      t.duration_ms,
+      t.plex_rating_key
     FROM tracks t
     JOIN albums album ON album.id = t.album_id
     JOIN artists artist ON artist.id = album.artist_id
@@ -890,7 +1214,8 @@ export async function getRecommendationCandidates(
     LEFT JOIN genres genre ON genre.id = item_genre.genre_id
     GROUP BY
       t.id, artist.id, artist.name, album.id, album.title, t.title,
-      t.added_at, state.last_played_at, state.rating, state.play_count
+      t.added_at, state.last_played_at, state.rating, state.play_count,
+      t.duration_ms, t.plex_rating_key
     ORDER BY artist.name ASC, album.title ASC, t.id ASC
   `
 
@@ -906,6 +1231,8 @@ export async function getRecommendationCandidates(
     lastPlayedAt: serialiseTimestamp(row.last_played_at),
     rating: row.rating === null ? null : Number(row.rating),
     playCount: row.play_count ?? 0,
+    durationMs: row.duration_ms,
+    plexRatingKey: row.plex_rating_key,
   }))
 }
 

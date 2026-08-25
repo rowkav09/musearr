@@ -182,6 +182,38 @@ describe('dashboard', () => {
     expect(response.statusCode).toBe(401)
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
   })
+
+  it('requires a local session before importing scrobbles', async () => {
+    const response = await createServer().inject({
+      method: 'POST',
+      url: '/api/v1/imports/scrobbles',
+      payload: { scrobbles: [] },
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
+  })
+
+  it('requires a local session before managing playlist proposals', async () => {
+    const getRes = await createServer().inject({
+      method: 'GET',
+      url: '/api/v1/playlists/proposals',
+    })
+    expect(getRes.statusCode).toBe(401)
+
+    const postRes = await createServer().inject({
+      method: 'POST',
+      url: '/api/v1/playlists/proposals',
+      payload: {},
+    })
+    expect(postRes.statusCode).toBe(401)
+
+    const exportRes = await createServer().inject({
+      method: 'POST',
+      url: '/api/v1/playlists/proposals/9ad3649a-a78f-4aea-99dc-473c7c1c5501/export-to-plex',
+    })
+    expect(exportRes.statusCode).toBe(401)
+  })
 })
 
 

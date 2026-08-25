@@ -403,6 +403,42 @@ export const dailyBriefDeliveries = pgTable(
   ],
 )
 
+export const playlistProposals = pgTable(
+  'playlist_proposals',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    kind: text('kind').notNull(),
+    algorithmVersion: text('algorithm_version').notNull(),
+    status: text('status').notNull().default('draft'),
+    plexPlaylistRatingKey: text('plex_playlist_rating_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('playlist_proposals_user_status_idx').on(table.userId, table.status, table.createdAt)],
+)
+
+export const playlistProposalItems = pgTable(
+  'playlist_proposal_items',
+  {
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => playlistProposals.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    trackId: uuid('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlist_proposal_items_pkey').on(table.proposalId, table.position),
+    index('playlist_proposal_items_track_idx').on(table.trackId),
+  ],
+)
+
 export const auditLog = pgTable(
   'audit_log',
   {
