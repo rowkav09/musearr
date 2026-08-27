@@ -105,6 +105,15 @@ const EnvironmentSchema = z.object({
   MUSEARR_LOCAL_AI_PROVIDER: z.enum(['none', 'ollama']).default('none'),
   MUSEARR_LOCAL_AI_BASE_URL: OptionalHttpUrlSchema,
   MUSEARR_LOCAL_AI_MODEL: OptionalNonEmptyStringSchema,
+  // MusicBrainz + ListenBrainz are the deterministic similar-track source for
+  // playlist generation. Off by default; enabling it sends the seed artist and
+  // title to MetaBrainz (or a mirror you configure). A contact string is
+  // required by MusicBrainz policy when enabled.
+  MUSEARR_MUSICBRAINZ_ENABLED: EnvironmentBooleanSchema,
+  MUSEARR_MUSICBRAINZ_CONTACT: OptionalNonEmptyStringSchema,
+  MUSEARR_MUSICBRAINZ_BASE_URL: OptionalHttpUrlSchema,
+  MUSEARR_LISTENBRAINZ_BASE_URL: OptionalHttpUrlSchema,
+  MUSEARR_MUSICBRAINZ_ALGORITHM: OptionalNonEmptyStringSchema,
 })
 
 export type MusearrConfig = z.infer<typeof EnvironmentSchema>

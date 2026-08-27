@@ -1,4 +1,5 @@
 import type { MusearrConfig } from '@musearr/config'
+import { MUSEARR_VERSION } from '@musearr/core'
 import {
   getPlaylistGenerationJobContext,
   getPlaylistLibraryTracks,
@@ -8,6 +9,7 @@ import {
   type PlaylistGenerationItemInput,
 } from '@musearr/db'
 import {
+  CompositeSimilarTrackProvider,
   createLocalAiProvider,
   generateFromSeed,
   LocalAiSimilarTrackProvider,
@@ -16,6 +18,7 @@ import {
   type ExternalTrackSuggestion,
   type SimilarTrackProvider,
 } from '@musearr/intelligence'
+import { MusicBrainzSimilarTrackProvider } from '@musearr/musicbrainz'
 
 export type PlaylistGenerationOutcome = {
   inLibrary: number
@@ -92,13 +95,43 @@ function resolveSimilarTrackProvider(config: MusearrConfig, acquireMissing: bool
   if (!acquireMissing) {
     return new NullSimilarTrackProvider()
   }
-  const provider = createLocalAiProvider({
+
+  const providers: SimilarTrackProvider[] = []
+
+  // Deterministic source first.
+  if (config.MUSEARR_MUSICBRAINZ_ENABLED && config.MUSEARR_MUSICBRAINZ_CONTACT) {
+    providers.push(
+      new MusicBrainzSimilarTrackProvider({
+        contact: config.MUSEARR_MUSICBRAINZ_CONTACT,
+        appName: 'Musearr',
+        appVersion: MUSEARR_VERSION,
+        ...(config.MUSEARR_MUSICBRAINZ_BASE_URL
+          ? { musicBrainzBaseUrl: config.MUSEARR_MUSICBRAINZ_BASE_URL }
+          : {}),
+        ...(config.MUSEARR_LISTENBRAINZ_BASE_URL
+          ? { listenBrainzBaseUrl: config.MUSEARR_LISTENBRAINZ_BASE_URL }
+          : {}),
+        ...(config.MUSEARR_MUSICBRAINZ_ALGORITHM
+          ? { algorithm: config.MUSEARR_MUSICBRAINZ_ALGORITHM }
+          : {}),
+      }),
+    )
+  }
+
+  const ai = createLocalAiProvider({
     enabled: config.MUSEARR_LOCAL_AI_ENABLED,
     provider: config.MUSEARR_LOCAL_AI_PROVIDER,
     baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL,
     model: config.MUSEARR_LOCAL_AI_MODEL,
   })
-  return provider.enabled ? new LocalAiSimilarTrackProvider(provider) : new NullSimilarTrackProvider()
+  if (ai.enabled) {
+    providers.push(new LocalAiSimilarTrackProvider(ai))
+  }
+
+  if (providers.length === 0) {
+    return new NullSimilarTrackProvider()
+  }
+  return providers.length === 1 ? (providers[0] as SimilarTrackProvider) : new CompositeSimilarTrackProvider(providers)
 }
 
 export { PLAYLIST_ALGORITHM_VERSION }

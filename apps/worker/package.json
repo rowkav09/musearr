@@ -17,6 +17,7 @@
     "@musearr/intelligence": "file:../../packages/intelligence",
     "@musearr/integrations": "file:../../packages/integrations",
     "@musearr/lidarr": "file:../../packages/lidarr",
+    "@musearr/musicbrainz": "file:../../packages/musicbrainz",
     "@musearr/plex": "file:../../packages/plex",
     "pg-boss": "^12.26.2"
   }

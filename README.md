@@ -19,7 +19,7 @@ This is an early beta for people who are comfortable operating Docker Compose an
 
 Musearr is still turning its foundation into a dependable library companion. Planned work includes fixture-driven Plex-import correctness, resumability and recovery verification, explainable recommendations and playlists, review-first metadata intelligence, and carefully scoped optional integrations.
 
-An early foundation for **playlist generation from a seed track** now exists: a deterministic planner, an optional [Lidarr](docs/PLAYLIST_GENERATION.md) acquisition step for tracks that are not yet in the library, an optional Plex publish of the finished playlist as a Musearr-managed playlist, and an off-by-default [local AI](docs/LOCAL_AI.md) provider interface. These are opt-in, still maturing, and not a delivery promise.
+An early foundation for **playlist generation from a seed track** now exists: a deterministic planner, a deterministic MusicBrainz + ListenBrainz similar-track source, an optional [Lidarr](docs/PLAYLIST_GENERATION.md) acquisition step for tracks that are not yet in the library, an optional Plex publish of the finished playlist as a Musearr-managed playlist, and an off-by-default [local AI](docs/LOCAL_AI.md) provider interface. These are opt-in, still maturing, and not a delivery promise.
 
 The detailed product intent and milestones live in the [product blueprint](docs/PRODUCT_BLUEPRINT.md). Treat that document as direction, not a guarantee of delivery dates or supported behavior.
 

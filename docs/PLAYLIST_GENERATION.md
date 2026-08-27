@@ -67,16 +67,36 @@ The API key is encrypted at rest with `MUSEARR_ENCRYPTION_KEY`, the same key use
 for the Plex token. Root folder and quality/metadata profiles are taken from the
 request, or the first values Lidarr reports if omitted.
 
+## Similar-track sources
+
+Gap items (tracks the planner wants that are not in the library) only exist when
+a `SimilarTrackProvider` returns candidates. Two are available, both off by
+default; when both are on they run through `CompositeSimilarTrackProvider` in
+this order, de-duplicated by artist + title:
+
+1. **MusicBrainz + ListenBrainz** (`@musearr/musicbrainz`) — deterministic. It
+   resolves the seed to a MusicBrainz recording MBID, asks the ListenBrainz
+   "similar-recordings" dataset for neighbours, and fills in missing metadata
+   from MusicBrainz. Enable with `MUSEARR_MUSICBRAINZ_ENABLED=true` and a
+   `MUSEARR_MUSICBRAINZ_CONTACT` string (required by MusicBrainz policy).
+   Requests are serialised and spaced to about one per second. Point
+   `MUSEARR_MUSICBRAINZ_BASE_URL` / `MUSEARR_LISTENBRAINZ_BASE_URL` at a mirror
+   if you run one.
+2. **Local AI** (`LocalAiSimilarTrackProvider`, `docs/LOCAL_AI.md`) — an
+   owner-hosted model, used to top up whatever MusicBrainz returned.
+
+With neither enabled, `acquireMissing: true` produces no gaps and the plan is
+library-only. `GET /api/v1/settings/musicbrainz` (owner only) reports the state.
+
+### Privacy
+
+Enabling MusicBrainz sends the seed artist and title, and the similar-recording
+MBIDs, to MetaBrainz (`musicbrainz.org` / `labs.api.listenbrainz.org`) or the
+mirror you configure. Nothing else leaves the instance, and it is off by default.
+
 ## Determinism
 
 The planner (`packages/intelligence/src/playlist.ts`) is pure and free of
-randomness: the same seed, library snapshot, and options always produce the same
-plan. Gap suggestions only enter the plan when `acquireMissing` is set and a
-similar-track provider returns candidates; otherwise the plan is library-only.
-
-The only similar-track provider shipped today is `LocalAiSimilarTrackProvider`
-(`docs/LOCAL_AI.md`), which is off by default. So with a stock configuration the
-acquisition path is inert even with `acquireMissing: true` and Lidarr connected:
-the plan is library-only and there are no gaps to acquire. A deterministic,
-non-AI suggestion source (e.g. a ListenBrainz/MusicBrainz adapter) feeding
-`externalSuggestions` is the natural follow-up.
+randomness: the same seed, library snapshot, and suggestion list always produce
+the same plan. The MusicBrainz source is deterministic for a given dataset
+snapshot; local AI is not, which is why it runs second.

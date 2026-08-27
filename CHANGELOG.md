@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Optional Lidarr integration (`@musearr/lidarr`): owner-configured, encrypted-at-rest
   connection, connection test/save endpoints, and an acquisition step that requests
   "gap" tracks that are not yet in the library.
+- Deterministic similar-track source (`@musearr/musicbrainz`): resolves the seed via
+  MusicBrainz and reads the ListenBrainz "similar-recordings" dataset, rate-limited
+  and with a required contact string. Off by default. `CompositeSimilarTrackProvider`
+  runs it before local AI. `GET /api/v1/settings/musicbrainz` reports state.
+- `docs/LOCAL_AI.md` now recommends specific small, efficient models for the
+  suggestion task (e.g. `qwen2.5:3b`) and small text embedders.
 - Optional Plex publish: finished generations can be written back to Plex as a
   Musearr-managed playlist, additively and idempotently.
 - Local AI foundation (`@musearr/intelligence/ai`): an off-by-default provider

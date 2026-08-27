@@ -17,6 +17,7 @@ import {
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   LocalAiStatusSchema,
+  MusicBrainzStatusSchema,
   PlaylistGenerationAcceptedSchema,
   PlaylistGenerationListResponseSchema,
   PlaylistGenerationResponseSchema,
@@ -924,6 +925,25 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         model: config.MUSEARR_LOCAL_AI_MODEL ?? null,
         baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL ?? null,
         reachable: null,
+      }),
+    )
+  })
+
+  app.get('/api/v1/settings/musicbrainz', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view integration settings.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    return reply.send(
+      MusicBrainzStatusSchema.parse({
+        enabled: config.MUSEARR_MUSICBRAINZ_ENABLED && Boolean(config.MUSEARR_MUSICBRAINZ_CONTACT),
+        contactConfigured: Boolean(config.MUSEARR_MUSICBRAINZ_CONTACT),
+        musicBrainzBaseUrl: config.MUSEARR_MUSICBRAINZ_BASE_URL ?? null,
+        listenBrainzBaseUrl: config.MUSEARR_LISTENBRAINZ_BASE_URL ?? null,
       }),
     )
   })

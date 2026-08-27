@@ -25,3 +25,50 @@ export class NullSimilarTrackProvider implements SimilarTrackProvider {
     return []
   }
 }
+
+/**
+ * Queries providers in order and merges their suggestions, de-duplicating by
+ * artist + title, until `limit` is reached. A provider that throws is skipped.
+ * Order matters: put deterministic sources before generative ones.
+ */
+export class CompositeSimilarTrackProvider implements SimilarTrackProvider {
+  readonly name: string
+
+  constructor(private readonly providers: SimilarTrackProvider[]) {
+    this.name = providers.map((provider) => provider.name).join('+') || 'none'
+  }
+
+  async findSimilar(seed: SimilarSeed, limit: number): Promise<ExternalTrackSuggestion[]> {
+    const merged: ExternalTrackSuggestion[] = []
+    const seen = new Set<string>()
+
+    for (const provider of this.providers) {
+      if (merged.length >= limit) {
+        break
+      }
+      let batch: ExternalTrackSuggestion[]
+      try {
+        batch = await provider.findSimilar(seed, limit - merged.length)
+      } catch {
+        batch = []
+      }
+      for (const suggestion of batch) {
+        const artist = suggestion.artistName.trim()
+        const title = suggestion.trackTitle.trim()
+        if (!artist || !title) {
+          continue
+        }
+        const key = `${artist.toLocaleLowerCase()}::${title.toLocaleLowerCase()}`
+        if (seen.has(key)) {
+          continue
+        }
+        seen.add(key)
+        merged.push(suggestion)
+        if (merged.length >= limit) {
+          break
+        }
+      }
+    }
+    return merged
+  }
+}

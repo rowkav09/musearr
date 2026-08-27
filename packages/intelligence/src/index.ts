@@ -27,6 +27,7 @@ export {
   type PlaylistReasonCode,
 } from './playlist.js'
 export {
+  CompositeSimilarTrackProvider,
   NullSimilarTrackProvider,
   type SimilarSeed,
   type SimilarTrackProvider,
