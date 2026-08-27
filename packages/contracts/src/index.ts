@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+export * from './lidarr.js'
+export * from './local-ai.js'
+export * from './playlists.js'
+
 export const SetupPhaseSchema = z.enum(['unconfigured', 'configured'])
 
 export const SystemStatusSchema = z.object({

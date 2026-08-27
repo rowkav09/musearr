@@ -45,11 +45,25 @@ The first delightful loop is **Connect → Sync → Today’s brief → Play som
 - Immutable daily briefings with optional Discord delivery.
 - Review-first metadata issue detection and suggestions; no source mutation in the MVP.
 
+### Opt-in, off by default (added 2026-08-28)
+
+- **Seed-track playlist generation** with an optional acquisition step: when the owner
+  configures a Lidarr instance, tracks the planner wants that are not in the library
+  can be requested from Lidarr and folded in once a later sync mirrors them.
+- **Musearr-managed Plex playlist publish**: a finished generation may be written back
+  to Plex as a playlist Musearr owns. Publishes are additive and idempotent, guarded by
+  `playlists.managed_by_musearr`; a playlist the owner created is never touched.
+- **Local AI**: an off-by-default provider interface (`packages/intelligence/src/ai`)
+  for a model the owner runs themselves. The deterministic pipeline is unchanged when
+  it is disabled, consistent with "prefer deterministic, explainable ranking signals
+  before adding generative AI".
+
 ### Explicitly deferred
 
-- Playback, downloads, acquisition, or Plexamp replacement.
+- Playback, streaming, or Plexamp replacement; general-purpose downloading beyond the
+  scoped Lidarr acquisition above.
 - Cloud LLMs, external music discovery, social features, multi-user collaboration, or a public plugin marketplace.
-- Automatic Plex metadata/playlist writes.
+- Automatic Plex metadata writes, and any write to a playlist Musearr did not create.
 - Runtime third-party plugins, microservices, Kubernetes, Redis/Kafka, and a general-purpose workflow engine.
 
 ## 3. Product principles
@@ -345,3 +359,10 @@ The design prepares, but does not implement, multi-user and additional providers
 **Chosen foundation:** an explainable, deterministic, read-only Plex companion that produces a trusted daily listening decision from a reliable local mirror.
 
 **Deliberately rejected for MVP:** a broad AI platform, remote-first recommendation service, autonomous metadata editor, and distributed microservice architecture.
+
+**2026-08-28 — scope adjustment (owner decision):** seed-track playlist generation may
+optionally acquire missing tracks through an owner-run Lidarr instance and optionally
+publish the result to Plex as a Musearr-managed playlist. Both are opt-in per request
+and off by default; the read-only, deterministic core path is unchanged when they are
+not used. A local-AI provider interface is added, disabled by default, with no hosted
+LLM dependency. See `docs/PLAYLIST_GENERATION.md` and `docs/LOCAL_AI.md`.

@@ -19,19 +19,25 @@ This is an early beta for people who are comfortable operating Docker Compose an
 
 Musearr is still turning its foundation into a dependable library companion. Planned work includes fixture-driven Plex-import correctness, resumability and recovery verification, explainable recommendations and playlists, review-first metadata intelligence, and carefully scoped optional integrations.
 
+An early foundation for **playlist generation from a seed track** now exists: a deterministic planner, an optional [Lidarr](docs/PLAYLIST_GENERATION.md) acquisition step for tracks that are not yet in the library, an optional Plex publish of the finished playlist as a Musearr-managed playlist, and an off-by-default [local AI](docs/LOCAL_AI.md) provider interface. These are opt-in, still maturing, and not a delivery promise.
+
 The detailed product intent and milestones live in the [product blueprint](docs/PRODUCT_BLUEPRINT.md). Treat that document as direction, not a guarantee of delivery dates or supported behavior.
 
 ## Deliberate non-goals
 
-Musearr does **not** currently:
+Musearr does **not**:
 
-- download, stream, or play audio;
-- replace Plex or control Plex playback;
+- stream or play audio, or control Plex playback;
 - silently write metadata or audio files back to Plex;
 - provide a hosted cloud account, multi-user tenancy, social features, or external discovery as part of the core path;
 - require or depend on a hosted LLM.
 
-Any future metadata change must be review-first, consented to, and auditable. The core product remains focused on the library you already own.
+Two capabilities are **opt-in and disabled by default**, and only act on services you run yourself:
+
+- acquisition of missing tracks through a Lidarr instance you configure;
+- publishing a generated playlist back to Plex as a clearly Musearr-managed playlist. Musearr never modifies a playlist you created.
+
+Any future metadata change must be review-first, consented to, and auditable. Local AI, when enabled, talks only to a model endpoint you host. The core product remains focused on the library you already own.
 
 ## Architecture at a glance
 

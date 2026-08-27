@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
   bigint,
   boolean,
@@ -416,4 +417,120 @@ export const auditLog = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('audit_log_target_idx').on(table.targetType, table.targetId)],
+)
+
+export const playlistGenerationStatus = pgEnum('playlist_generation_status', [
+  'generating',
+  'awaiting_acquisition',
+  'ready',
+  'publishing',
+  'published',
+  'partially_published',
+  'failed',
+])
+
+export const playlistGenerationItemState = pgEnum('playlist_generation_item_state', [
+  'in_library',
+  'pending',
+  'requested',
+  'downloading',
+  'imported',
+  'matched',
+  'unavailable',
+])
+
+export const lidarrConnections = pgTable(
+  'lidarr_connections',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    baseUrl: text('base_url').notNull(),
+    apiKeyCiphertext: text('api_key_ciphertext').notNull(),
+    apiKeyKeyVersion: text('api_key_key_version').notNull().default('v1'),
+    instanceName: text('instance_name'),
+    version: text('version'),
+    rootFolderPath: text('root_folder_path'),
+    qualityProfileId: integer('quality_profile_id'),
+    metadataProfileId: integer('metadata_profile_id'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('lidarr_connections_singleton').on(sql`(true)`)],
+)
+
+export const playlistGenerations = pgTable(
+  'playlist_generations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    seedTrackId: uuid('seed_track_id').references(() => tracks.id, { onDelete: 'set null' }),
+    seedLabel: text('seed_label').notNull(),
+    name: text('name').notNull(),
+    status: playlistGenerationStatus('status').notNull().default('generating'),
+    algorithmVersion: text('algorithm_version').notNull(),
+    targetSize: integer('target_size').notNull(),
+    acquireMissing: boolean('acquire_missing').notNull().default(false),
+    publishToPlex: boolean('publish_to_plex').notNull().default(false),
+    plexPlaylistId: uuid('plex_playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
+    inputSnapshotAt: timestamp('input_snapshot_at', { withTimezone: true }).notNull().defaultNow(),
+    errorSummary: text('error_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+  },
+  (table) => [index('playlist_generations_user_created_idx').on(table.userId, table.createdAt)],
+)
+
+export const playlistGenerationItems = pgTable(
+  'playlist_generation_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    generationId: uuid('generation_id')
+      .notNull()
+      .references(() => playlistGenerations.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    trackId: uuid('track_id').references(() => tracks.id, { onDelete: 'set null' }),
+    plexRatingKey: text('plex_rating_key'),
+    artistName: text('artist_name').notNull(),
+    albumTitle: text('album_title'),
+    trackTitle: text('track_title').notNull(),
+    state: playlistGenerationItemState('state').notNull().default('pending'),
+    score: numeric('score', { precision: 6, scale: 4 }).notNull().default('0'),
+    reasonCodes: jsonb('reason_codes').notNull().default([]),
+    lidarrArtistId: integer('lidarr_artist_id'),
+    lidarrAlbumId: integer('lidarr_album_id'),
+    acquisitionRequestedAt: timestamp('acquisition_requested_at', { withTimezone: true }),
+    matchedAt: timestamp('matched_at', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlist_generation_items_generation_position').on(table.generationId, table.position),
+    index('playlist_generation_items_generation_idx').on(table.generationId),
+    index('playlist_generation_items_state_idx').on(table.state),
+  ],
+)
+
+export const playlistPublications = pgTable(
+  'playlist_publications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    generationId: uuid('generation_id')
+      .notNull()
+      .references(() => playlistGenerations.id, { onDelete: 'cascade' }),
+    plexServerId: uuid('plex_server_id')
+      .notNull()
+      .references(() => plexServers.id, { onDelete: 'cascade' }),
+    plexPlaylistRatingKey: text('plex_playlist_rating_key'),
+    requestedItemCount: integer('requested_item_count').notNull().default(0),
+    publishedItemCount: integer('published_item_count').notNull().default(0),
+    status: text('status').notNull().default('pending'),
+    errorSummary: text('error_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('playlist_publications_generation_idx').on(table.generationId, table.createdAt)],
 )

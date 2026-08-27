@@ -8,14 +8,24 @@ import {
   getLibrarySyncSources,
   LIBRARY_SYNC_QUEUE,
   PLAYLIST_SYNC_QUEUE,
+  PLAYLIST_GENERATION_QUEUE,
+  PLAYLIST_ACQUISITION_QUEUE,
+  PLAYLIST_PUBLISH_QUEUE,
+  PLAYLIST_GENERATION_RECONCILE_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   scheduleLibraryReconciliation,
   scheduleDailyBrief,
+  schedulePlaylistGenerationReconcile,
+  setPlaylistGenerationStatus,
   startJobQueue,
   type LibrarySyncJob,
   type DailyBriefJob,
   type PlaylistSyncJob,
+  type PlaylistGenerationJob,
+  type PlaylistAcquisitionJob,
+  type PlaylistPublishJob,
+  type PlaylistGenerationReconcileJob,
   type RecommendationRunJob,
   type ReconciliationJob,
 } from '@musearr/db'
@@ -24,6 +34,11 @@ import { syncPlexLibrary } from './jobs/library-sync.js'
 import { syncPlexPlaylists } from './jobs/playlist-sync.js'
 import { generateRecommendationRun } from './jobs/recommendation-run.js'
 import { generateDailyBrief } from './jobs/daily-brief.js'
+import { generatePlaylist } from './jobs/playlist-generation.js'
+import { requestPlaylistAcquisitions } from './jobs/playlist-acquisition.js'
+import { reconcilePlaylistGenerations } from './jobs/playlist-reconcile.js'
+import { publishPlaylistToPlex } from './jobs/playlist-publish.js'
+import { sanitisePlaylistFailure } from './jobs/playlist-failures.js'
 
 const config = getConfig()
 const database = createDatabase(config.DATABASE_URL)
@@ -141,12 +156,98 @@ async function start(): Promise<void> {
     },
   )
 
+  await jobQueue.work<PlaylistGenerationJob>(
+    PLAYLIST_GENERATION_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        try {
+          const result = await generatePlaylist(database, config, job.data.generationId)
+          if (result.next === 'acquire') {
+            await jobQueue!.send(
+              PLAYLIST_ACQUISITION_QUEUE,
+              { generationId: job.data.generationId },
+              { singletonKey: job.data.generationId },
+            )
+          } else if (result.next === 'publish') {
+            await jobQueue!.send(
+              PLAYLIST_PUBLISH_QUEUE,
+              { generationId: job.data.generationId, trigger: 'manual' },
+              { singletonKey: job.data.generationId },
+            )
+          }
+          console.info({ jobId: job.id, generationId: job.data.generationId, ...result }, 'Playlist generation completed')
+        } catch (error) {
+          await failGeneration(job.data.generationId, error)
+          throw error
+        }
+      }
+    },
+  )
+  await jobQueue.work<PlaylistAcquisitionJob>(
+    PLAYLIST_ACQUISITION_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        try {
+          const result = await requestPlaylistAcquisitions(database, config, job.data.generationId)
+          console.info({ jobId: job.id, generationId: job.data.generationId, ...result }, 'Playlist acquisition requested')
+        } catch (error) {
+          await failGeneration(job.data.generationId, error)
+          throw error
+        }
+      }
+    },
+  )
+  await jobQueue.work<PlaylistPublishJob>(
+    PLAYLIST_PUBLISH_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        try {
+          const result = await publishPlaylistToPlex(database, config, job.data.generationId)
+          console.info({ jobId: job.id, generationId: job.data.generationId, ...result }, 'Playlist publish completed')
+        } catch (error) {
+          await failGeneration(job.data.generationId, error)
+          throw error
+        }
+      }
+    },
+  )
+  await jobQueue.work<PlaylistGenerationReconcileJob>(
+    PLAYLIST_GENERATION_RECONCILE_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const result = await reconcilePlaylistGenerations(database, config)
+        for (const generationId of result.readyToPublish) {
+          await jobQueue!.send(
+            PLAYLIST_PUBLISH_QUEUE,
+            { generationId, trigger: 'reconciliation' },
+            { singletonKey: generationId },
+          )
+        }
+        console.info({ jobId: job.id, ...result }, 'Playlist generation reconciliation completed')
+      }
+    },
+  )
+
   await scheduleLibraryReconciliation(jobQueue, config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES)
   await scheduleDailyBrief(jobQueue, config.MUSEARR_DAILY_BRIEF_TIME, config.MUSEARR_TIMEZONE)
+  await schedulePlaylistGenerationReconcile(jobQueue)
 
   console.info(
     `Musearr worker ${MUSEARR_VERSION} is ready for durable Plex sync jobs, ${config.MUSEARR_RECONCILIATION_INTERVAL_MINUTES}-minute reconciliation, and daily briefings at ${config.MUSEARR_DAILY_BRIEF_TIME} ${config.MUSEARR_TIMEZONE}.`,
   )
+}
+
+async function failGeneration(generationId: string, error: unknown): Promise<void> {
+  const failure = sanitisePlaylistFailure(error)
+  try {
+    await setPlaylistGenerationStatus(database, generationId, 'failed', failure.summary)
+  } catch (updateError) {
+    console.error({ generationId, updateError }, 'Could not persist playlist generation failure')
+  }
 }
 
 async function stop(signal: string): Promise<void> {

@@ -10,8 +10,16 @@ import {
   CompleteSetupRequestSchema,
   DailyBriefResponseSchema,
   DashboardOverviewSchema,
+  GeneratePlaylistRequestSchema,
+  LidarrConnectionRequestSchema,
+  LidarrConnectionResultSchema,
+  LidarrConnectionStatusSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
+  LocalAiStatusSchema,
+  PlaylistGenerationAcceptedSchema,
+  PlaylistGenerationListResponseSchema,
+  PlaylistGenerationResponseSchema,
   PlexConnectionRequestSchema,
   PlexPinCreateResponseSchema,
   PlexPinStatusResponseSchema,
@@ -27,6 +35,7 @@ import {
 import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
   createDatabase,
+  createPlaylistGeneration,
   DAILY_BRIEF_QUEUE,
   getDashboardOverview,
   getDatabaseStatus,
@@ -34,15 +43,21 @@ import {
   getLatestRecommendations,
   getLatestDailyBrief,
   getListeningInsightSummary,
+  getLidarrConnectionStatus,
+  getPlaylistGeneration,
+  getPlaylistSeedLabel,
   getSetupStatus,
   getSyncRun,
+  listPlaylistGenerations,
   listSyncRuns,
   getUserTimezone,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
+  PLAYLIST_GENERATION_QUEUE,
   PLAYLIST_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   startJobQueue,
+  upsertLidarrConnection,
   type Database,
 } from '@musearr/db'
 import {
@@ -54,6 +69,7 @@ import {
   plexPinAuthUrl,
   normalisePlexBaseUrl,
 } from '@musearr/plex'
+import { LidarrClient, LidarrConnectionError, normaliseLidarrBaseUrl } from '@musearr/lidarr'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { PgBoss } from 'pg-boss'
 
@@ -734,6 +750,182 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const timezone = await getUserTimezone(database, request.user.sub)
     const insight = await getListeningInsightSummary(database, request.user.sub, timezone, parsed.data.days)
     return reply.send(ListeningInsightSummarySchema.parse(insight))
+  })
+
+  app.post('/api/v1/playlists/generate', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to generate a playlist.')
+    }
+
+    const parsed = GeneratePlaylistRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a seed track and a playlist length.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+
+    const seedLabel = await getPlaylistSeedLabel(database, parsed.data.seedTrackId)
+    if (!seedLabel) {
+      return sendProblem(reply, 404, 'SEED_TRACK_NOT_FOUND', 'That track is not in the local library mirror.')
+    }
+
+    const generationId = await createPlaylistGeneration(database, {
+      userId: request.user.sub,
+      seedTrackId: parsed.data.seedTrackId,
+      seedLabel,
+      name: parsed.data.name?.trim() || `Like ${seedLabel}`,
+      algorithmVersion: 'pending',
+      targetSize: parsed.data.targetSize,
+      acquireMissing: parsed.data.acquireMissing,
+      publishToPlex: parsed.data.publishToPlex,
+    })
+    await readyJobQueue.send(
+      PLAYLIST_GENERATION_QUEUE,
+      { generationId, trigger: 'manual' },
+      { singletonKey: generationId },
+    )
+    return reply
+      .code(202)
+      .send(PlaylistGenerationAcceptedSchema.parse({ generationId, status: 'generating' }))
+  })
+
+  app.get('/api/v1/playlists/generations', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your playlists.')
+    }
+    return reply.send(
+      PlaylistGenerationListResponseSchema.parse({
+        generations: await listPlaylistGenerations(database, request.user.sub),
+      }),
+    )
+  })
+
+  app.get('/api/v1/playlists/generations/:id', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your playlists.')
+    }
+    const id = typeof (request.params as { id?: unknown }).id === 'string' ? (request.params as { id: string }).id : ''
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid playlist.')
+    }
+    const generation = await getPlaylistGeneration(database, request.user.sub, id)
+    if (!generation) {
+      return sendProblem(reply, 404, 'PLAYLIST_NOT_FOUND', 'No generated playlist matched this request.')
+    }
+    return reply.send(PlaylistGenerationResponseSchema.parse({ generation }))
+  })
+
+  app.post('/api/v1/settings/lidarr/test', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to test the Lidarr connection.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+
+    const parsed = LidarrConnectionRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter a Lidarr URL and API key.')
+    }
+
+    try {
+      const result = await new LidarrClient(parsed.data.baseUrl, parsed.data.apiKey).testConnection()
+      return reply.send(LidarrConnectionResultSchema.parse(result))
+    } catch (error) {
+      if (error instanceof LidarrConnectionError) {
+        return sendProblem(reply, error.code === 'UNAUTHENTICATED' ? 401 : 422, error.code, error.message)
+      }
+      throw error
+    }
+  })
+
+  app.post('/api/v1/settings/lidarr', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to save the Lidarr connection.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+
+    const parsed = LidarrConnectionRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter a Lidarr URL and API key.')
+    }
+    const encryptionKey = configurationForSetup(config)
+    if (!encryptionKey) {
+      return sendProblem(
+        reply,
+        503,
+        'MISSING_ENCRYPTION_KEY',
+        'Set MUSEARR_ENCRYPTION_KEY before saving a Lidarr connection.',
+      )
+    }
+
+    try {
+      const result = await new LidarrClient(parsed.data.baseUrl, parsed.data.apiKey).testConnection()
+      await upsertLidarrConnection(database, {
+        baseUrl: normaliseLidarrBaseUrl(parsed.data.baseUrl),
+        apiKeyCiphertext: encryptSecret(parsed.data.apiKey, encryptionKey),
+        instanceName: result.instanceName,
+        version: result.version,
+        rootFolderPath:
+          parsed.data.rootFolderPath ?? result.rootFolders[0]?.path ?? null,
+        qualityProfileId:
+          parsed.data.qualityProfileId ?? result.qualityProfiles[0]?.id ?? null,
+        metadataProfileId:
+          parsed.data.metadataProfileId ?? result.metadataProfiles[0]?.id ?? null,
+      })
+      return reply.send(LidarrConnectionStatusSchema.parse(await getLidarrConnectionStatus(database)))
+    } catch (error) {
+      if (error instanceof LidarrConnectionError) {
+        return sendProblem(reply, error.code === 'UNAUTHENTICATED' ? 401 : 422, error.code, error.message)
+      }
+      throw error
+    }
+  })
+
+  app.get('/api/v1/settings/lidarr', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view integration settings.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    return reply.send(LidarrConnectionStatusSchema.parse(await getLidarrConnectionStatus(database)))
+  })
+
+  app.get('/api/v1/settings/local-ai', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view integration settings.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    return reply.send(
+      LocalAiStatusSchema.parse({
+        enabled: config.MUSEARR_LOCAL_AI_ENABLED,
+        provider: config.MUSEARR_LOCAL_AI_PROVIDER,
+        model: config.MUSEARR_LOCAL_AI_MODEL ?? null,
+        baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL ?? null,
+        reachable: null,
+      }),
+    )
   })
 
   if (ownsDatabase) {

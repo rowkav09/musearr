@@ -245,6 +245,55 @@ export class PlexClient {
     }
   }
 
+  /**
+   * Creates a Musearr-managed audio playlist from a list of track rating keys.
+   *
+   * NOTE: Plex expects the seed items as a `uri` pointing at library metadata on
+   * the owning server. The exact `server://{machineIdentifier}/...` form below is
+   * the one place to adjust if a live server rejects it. Callers must only pass
+   * this the rating keys of a playlist Musearr itself owns.
+   */
+  async createAudioPlaylist(
+    machineIdentifier: string,
+    title: string,
+    trackRatingKeys: string[],
+  ): Promise<{ plexRatingKey: string }> {
+    if (trackRatingKeys.length === 0) {
+      throw new PlexConnectionError('INVALID_RESPONSE', 'A new Plex playlist needs at least one track.')
+    }
+    const uri = serverLibraryUri(machineIdentifier, trackRatingKeys)
+    const payload = await this.request<PlexPlaylistResponse>(
+      `/playlists?type=audio&smart=0&title=${encodeURIComponent(title)}&uri=${encodeURIComponent(uri)}`,
+      { method: 'POST' },
+    )
+    const ratingKey = payload.MediaContainer?.Metadata?.[0]?.ratingKey
+    if (ratingKey === undefined) {
+      throw new PlexConnectionError('INVALID_RESPONSE', 'Plex did not return the created playlist.')
+    }
+    return { plexRatingKey: String(ratingKey) }
+  }
+
+  /** Appends tracks to an existing playlist. Safe to call with keys already present. */
+  async addPlaylistItems(
+    playlistId: string,
+    machineIdentifier: string,
+    trackRatingKeys: string[],
+  ): Promise<void> {
+    if (trackRatingKeys.length === 0) {
+      return
+    }
+    const uri = serverLibraryUri(machineIdentifier, trackRatingKeys)
+    await this.request<PlexPlaylistItemsResponse>(
+      `/playlists/${encodeURIComponent(playlistId)}/items?uri=${encodeURIComponent(uri)}`,
+      { method: 'PUT' },
+    )
+  }
+
+  async findAudioPlaylistByTitle(title: string): Promise<PlexPlaylist | null> {
+    const playlists = await this.audioPlaylists()
+    return playlists.find((playlist) => playlist.title === title) ?? null
+  }
+
   private async identity(): Promise<PlexIdentityResponse> {
     return this.request<PlexIdentityResponse>('/identity')
   }
@@ -260,12 +309,14 @@ export class PlexClient {
       }))
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, init: { method?: string } = {}): Promise<T> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 8_000)
+    const method = init.method ?? 'GET'
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
+        method,
         headers: {
           ...PLEX_HEADERS,
           'X-Plex-Token': this.token,
@@ -280,7 +331,18 @@ export class PlexClient {
         throw new PlexConnectionError('UNREACHABLE', 'Musearr could not reach the Plex server.')
       }
 
-      return (await response.json()) as T
+      if (response.status === 204 || response.headers.get('content-length') === '0') {
+        return undefined as T
+      }
+      const text = await response.text()
+      if (text.trim().length === 0) {
+        return undefined as T
+      }
+      try {
+        return JSON.parse(text) as T
+      } catch {
+        throw new PlexConnectionError('INVALID_RESPONSE', 'Plex returned an unreadable response.')
+      }
     } catch (error) {
       if (error instanceof PlexConnectionError) {
         throw error
@@ -418,6 +480,14 @@ function normaliseTrack(
         .filter((genre): genre is string => Boolean(genre)),
     },
   ]
+}
+
+/**
+ * Builds the `server://` metadata URI Plex expects when seeding or extending a
+ * playlist. Keys are the numeric track rating keys from the same server.
+ */
+function serverLibraryUri(machineIdentifier: string, ratingKeys: string[]): string {
+  return `server://${machineIdentifier}/com.plexapp.plugins.library/library/metadata/${ratingKeys.join(',')}`
 }
 
 function integerOrNull(value: unknown): number | null {

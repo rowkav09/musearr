@@ -1,0 +1,94 @@
+import {
+  LocalAiUnavailableError,
+  type LocalAiCompletionRequest,
+  type LocalAiProvider,
+} from './provider.js'
+
+const REQUEST_TIMEOUT_MS = 60_000
+
+export type OllamaProviderOptions = {
+  baseUrl: string
+  model: string
+  /** Injectable for tests. */
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * Experimental adapter for a locally running Ollama server
+ * (https://ollama.com). It is only constructed when the owner explicitly
+ * enables local AI; it is never the default. All requests go to the
+ * owner-provided `baseUrl` on their own network.
+ */
+export class OllamaLocalAiProvider implements LocalAiProvider {
+  readonly name = 'ollama' as const
+  readonly enabled = true
+  readonly model: string
+  readonly baseUrl: string
+  private readonly fetchImpl: typeof fetch
+
+  constructor(options: OllamaProviderOptions) {
+    this.baseUrl = options.baseUrl.replace(/\/+$/, '')
+    this.model = options.model
+    this.fetchImpl = options.fetchImpl ?? fetch
+  }
+
+  async isReachable(): Promise<boolean> {
+    try {
+      const response = await this.request('/api/tags', undefined, 5_000)
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  async complete(request: LocalAiCompletionRequest): Promise<string> {
+    const response = await this.request('/api/generate', {
+      model: this.model,
+      prompt: request.prompt,
+      ...(request.system === undefined ? {} : { system: request.system }),
+      stream: false,
+      options: {
+        temperature: request.temperature ?? 0.2,
+        ...(request.maxTokens === undefined ? {} : { num_predict: request.maxTokens }),
+      },
+    })
+    if (!response.ok) {
+      throw new LocalAiUnavailableError(`Ollama returned HTTP ${response.status}.`)
+    }
+    const payload = (await response.json()) as { response?: unknown }
+    return typeof payload.response === 'string' ? payload.response : ''
+  }
+
+  async embed(texts: string[]): Promise<number[][]> {
+    const vectors: number[][] = []
+    for (const text of texts) {
+      const response = await this.request('/api/embeddings', { model: this.model, prompt: text })
+      if (!response.ok) {
+        throw new LocalAiUnavailableError(`Ollama returned HTTP ${response.status}.`)
+      }
+      const payload = (await response.json()) as { embedding?: unknown }
+      vectors.push(Array.isArray(payload.embedding) ? (payload.embedding as number[]) : [])
+    }
+    return vectors
+  }
+
+  private async request(
+    path: string,
+    body?: unknown,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<Response> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      return await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        ...(body === undefined
+          ? {}
+          : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+}

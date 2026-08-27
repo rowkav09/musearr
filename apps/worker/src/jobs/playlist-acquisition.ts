@@ -1,0 +1,143 @@
+import type { MusearrConfig } from '@musearr/config'
+import { decryptSecret } from '@musearr/core'
+import {
+  getGenerationItemsByState,
+  getGenerationItemStateCounts,
+  getLidarrConnection,
+  setPlaylistGenerationStatus,
+  updateGenerationItemAcquisition,
+  type Database,
+} from '@musearr/db'
+import { LidarrClient } from '@musearr/lidarr'
+
+export type PlaylistAcquisitionOutcome = {
+  requested: number
+  unavailable: number
+}
+
+/**
+ * Asks Lidarr to acquire the "gap" tracks in a generation. Each item is handled
+ * independently: a lookup or add failure marks that one item `unavailable` and
+ * the rest continue. The scheduled reconciler later advances `requested` items
+ * as their files import and Plex mirrors them.
+ */
+export async function requestPlaylistAcquisitions(
+  database: Database,
+  config: MusearrConfig,
+  generationId: string,
+): Promise<PlaylistAcquisitionOutcome> {
+  const pendingItems = await getGenerationItemsByState(database, generationId, ['pending'])
+  if (pendingItems.length === 0) {
+    await refreshGenerationStatus(database, generationId)
+    return { requested: 0, unavailable: 0 }
+  }
+
+  const connection = await getLidarrConnection(database)
+  if (!connection) {
+    for (const item of pendingItems) {
+      await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable' })
+    }
+    await refreshGenerationStatus(database, generationId)
+    return { requested: 0, unavailable: pendingItems.length }
+  }
+
+  if (!config.MUSEARR_ENCRYPTION_KEY) {
+    throw new Error('MUSEARR_ENCRYPTION_KEY is required before Lidarr acquisition can run.')
+  }
+
+  const client = new LidarrClient(
+    connection.baseUrl,
+    decryptSecret(connection.apiKeyCiphertext, config.MUSEARR_ENCRYPTION_KEY),
+  )
+  const defaults = await resolveAddDefaults(client, connection)
+  const knownArtists = new Map(
+    (await client.getArtists()).map((artist) => [artist.artistName.trim().toLowerCase(), artist]),
+  )
+
+  let requested = 0
+  let unavailable = 0
+  for (const item of pendingItems) {
+    try {
+      const artistId = await ensureArtist(client, knownArtists, item.artistName, defaults)
+      if (artistId === null) {
+        await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable' })
+        unavailable += 1
+        continue
+      }
+
+      const albumId = item.albumTitle ? await findAlbumId(client, artistId, item.albumTitle) : null
+      if (albumId !== null) {
+        await client.setAlbumsMonitored([albumId], true)
+        await client.searchAlbums([albumId])
+      }
+      await updateGenerationItemAcquisition(database, item.id, {
+        state: 'requested',
+        lidarrArtistId: artistId,
+        lidarrAlbumId: albumId,
+      })
+      requested += 1
+    } catch {
+      await updateGenerationItemAcquisition(database, item.id, { state: 'unavailable' })
+      unavailable += 1
+    }
+  }
+
+  await refreshGenerationStatus(database, generationId)
+  return { requested, unavailable }
+}
+
+async function resolveAddDefaults(
+  client: LidarrClient,
+  connection: Awaited<ReturnType<typeof getLidarrConnection>>,
+): Promise<{ rootFolderPath: string; qualityProfileId: number; metadataProfileId: number }> {
+  const rootFolderPath =
+    connection?.rootFolderPath ?? (await client.rootFolders())[0]?.path ?? null
+  const qualityProfileId =
+    connection?.qualityProfileId ?? (await client.qualityProfiles())[0]?.id ?? null
+  const metadataProfileId =
+    connection?.metadataProfileId ?? (await client.metadataProfiles())[0]?.id ?? null
+
+  if (rootFolderPath === null || qualityProfileId === null || metadataProfileId === null) {
+    throw new Error('Lidarr is missing a root folder or quality/metadata profile for new artists.')
+  }
+  return { rootFolderPath, qualityProfileId, metadataProfileId }
+}
+
+async function ensureArtist(
+  client: LidarrClient,
+  knownArtists: Map<string, { id: number }>,
+  artistName: string,
+  defaults: { rootFolderPath: string; qualityProfileId: number; metadataProfileId: number },
+): Promise<number | null> {
+  const existing = knownArtists.get(artistName.trim().toLowerCase())
+  if (existing) {
+    return existing.id
+  }
+
+  const [match] = await client.lookupArtist(artistName)
+  if (!match) {
+    return null
+  }
+  const added = await client.addArtist({
+    foreignArtistId: match.foreignArtistId,
+    artistName: match.artistName,
+    rootFolderPath: defaults.rootFolderPath,
+    qualityProfileId: defaults.qualityProfileId,
+    metadataProfileId: defaults.metadataProfileId,
+    monitored: true,
+  })
+  knownArtists.set(match.artistName.trim().toLowerCase(), added)
+  return added.id
+}
+
+async function findAlbumId(client: LidarrClient, artistId: number, albumTitle: string): Promise<number | null> {
+  const target = albumTitle.trim().toLowerCase()
+  const albums = await client.getAlbums(artistId)
+  return albums.find((album) => album.title.trim().toLowerCase() === target)?.id ?? null
+}
+
+async function refreshGenerationStatus(database: Database, generationId: string): Promise<void> {
+  const counts = await getGenerationItemStateCounts(database, generationId)
+  const inFlight = counts.pending + counts.requested + counts.downloading + counts.imported
+  await setPlaylistGenerationStatus(database, generationId, inFlight > 0 ? 'awaiting_acquisition' : 'ready')
+}

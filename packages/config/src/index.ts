@@ -61,6 +61,26 @@ const OptionalPlexWebhookSecretSchema = z
   .union([z.string().min(32).max(256), z.literal('').transform(() => undefined)])
   .optional()
 
+const OptionalHttpUrlSchema = z
+  .union([
+    z
+      .string()
+      .trim()
+      .url()
+      .superRefine((value, context) => {
+        const url = new URL(value)
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+          context.addIssue({ code: 'custom', message: 'Expected an HTTP(S) URL without credentials.' })
+        }
+      }),
+    z.literal('').transform(() => undefined),
+  ])
+  .optional()
+
+const OptionalNonEmptyStringSchema = z
+  .union([z.string().trim().min(1).max(256), z.literal('').transform(() => undefined)])
+  .optional()
+
 const OptionalDiscordWebhookUrlSchema = z
   .union([DiscordWebhookUrlSchema, z.literal('').transform(() => undefined)])
   .optional()
@@ -79,6 +99,12 @@ const EnvironmentSchema = z.object({
   MUSEARR_PLEX_WEBHOOK_SECRET: OptionalPlexWebhookSecretSchema,
   MUSEARR_ENCRYPTION_KEY: z.string().min(1).optional(),
   MUSEARR_SESSION_SECRET: z.string().min(32).optional(),
+  // Local AI is optional and off by default. When disabled, every ranking and
+  // playlist decision stays fully deterministic.
+  MUSEARR_LOCAL_AI_ENABLED: EnvironmentBooleanSchema,
+  MUSEARR_LOCAL_AI_PROVIDER: z.enum(['none', 'ollama']).default('none'),
+  MUSEARR_LOCAL_AI_BASE_URL: OptionalHttpUrlSchema,
+  MUSEARR_LOCAL_AI_MODEL: OptionalNonEmptyStringSchema,
 })
 
 export type MusearrConfig = z.infer<typeof EnvironmentSchema>

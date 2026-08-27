@@ -34,14 +34,20 @@ export {
   LIBRARY_SYNC_QUEUE,
   DAILY_BRIEF_QUEUE,
   PLAYLIST_SYNC_QUEUE,
+  PLAYLIST_GENERATION_QUEUE,
+  PLAYLIST_ACQUISITION_QUEUE,
+  PLAYLIST_PUBLISH_QUEUE,
+  PLAYLIST_GENERATION_RECONCILE_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   reconciliationCron,
   dailyBriefCron,
   scheduleDailyBrief,
   scheduleLibraryReconciliation,
+  schedulePlaylistGenerationReconcile,
   startJobQueue,
 } from './jobs.js'
+export * from './playlist-generation.js'
 export type {
   Database,
   DashboardFavourite,
@@ -66,5 +72,15 @@ export type {
   SyncFailureClassification,
   SyncProgress,
 } from './repository.js'
-export type { DailyBriefJob, LibrarySyncJob, PlaylistSyncJob, RecommendationRunJob, ReconciliationJob } from './jobs.js'
+export type {
+  DailyBriefJob,
+  LibrarySyncJob,
+  PlaylistSyncJob,
+  PlaylistGenerationJob,
+  PlaylistAcquisitionJob,
+  PlaylistPublishJob,
+  PlaylistGenerationReconcileJob,
+  RecommendationRunJob,
+  ReconciliationJob,
+} from './jobs.js'
 export * from './schema.js'
