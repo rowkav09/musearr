@@ -483,7 +483,7 @@ export async function getGenerationItemsByState(
   >`
     SELECT id, artist_name, album_title, track_title, lidarr_artist_id, lidarr_album_id
     FROM playlist_generation_items
-    WHERE generation_id = ${generationId} AND state IN ${database(states)}
+    WHERE generation_id = ${generationId} AND state::text IN ${database(states)}
     ORDER BY position ASC
   `
   return rows.map((row) => ({
@@ -603,7 +603,7 @@ export async function markGenerationItemsPublished(
   await database`
     UPDATE playlist_generation_items
     SET published_at = NOW(), updated_at = NOW()
-    WHERE id IN ${database(itemIds)}
+    WHERE id::text IN ${database(itemIds)}
   `
 }
 
@@ -686,13 +686,19 @@ export async function getPlaylistGeneration(
   }
 
   const itemRows = await database<Array<PlaylistGenerationItemRow>>`
-    SELECT id, position, track_id, track_title, artist_name, album_title, state, score, reason_codes
+    SELECT id, position, track_id, track_title, artist_name, album_title, state, score, reason_codes,
+           published_at
     FROM playlist_generation_items
     WHERE generation_id = ${generationId}
     ORDER BY position ASC
   `
   const items = itemRows.map(toGenerationItemRecord)
-  return { ...toGenerationSummary(row), items }
+  const stateCounts = emptyStateCounts()
+  for (const item of itemRows) {
+    stateCounts[item.state] += 1
+  }
+  const publishedCount = itemRows.filter((item) => item.published_at !== null).length
+  return { ...toGenerationSummary(row, stateCounts, publishedCount), items }
 }
 
 export async function listPlaylistGenerations(
@@ -700,7 +706,9 @@ export async function listPlaylistGenerations(
   userId: string,
   limit = 30,
 ): Promise<PlaylistGenerationSummaryRecord[]> {
-  const rows = await database<Array<PlaylistGenerationRow & { item_counts: unknown }>>`
+  const rows = await database<
+    Array<PlaylistGenerationRow & { item_counts: unknown; published_count: string | number | null }>
+  >`
     SELECT g.id, g.name, g.seed_track_id, g.seed_label, g.status, g.algorithm_version,
            g.target_size, g.acquire_missing, g.publish_to_plex, g.error_summary,
            g.created_at, g.updated_at, g.published_at,
@@ -709,9 +717,13 @@ export async function listPlaylistGenerations(
     FROM playlist_generations g
     LEFT JOIN playlists playlist ON playlist.id = g.plex_playlist_id
     LEFT JOIN LATERAL (
-      SELECT jsonb_object_agg(state, n) AS item_counts
+      SELECT
+        jsonb_object_agg(s.state, s.n) AS item_counts,
+        COALESCE(SUM(s.published_n), 0) AS published_count
       FROM (
-        SELECT state, COUNT(*) AS n
+        SELECT state,
+               COUNT(*) AS n,
+               COUNT(*) FILTER (WHERE published_at IS NOT NULL) AS published_n
         FROM playlist_generation_items
         WHERE generation_id = g.id
         GROUP BY state
@@ -721,7 +733,9 @@ export async function listPlaylistGenerations(
     ORDER BY g.created_at DESC
     LIMIT ${Math.min(100, Math.max(1, limit))}
   `
-  return rows.map((row) => toGenerationSummary(row, parseStateCounts(row.item_counts)))
+  return rows.map((row) =>
+    toGenerationSummary(row, parseStateCounts(row.item_counts), Number(row.published_count ?? 0)),
+  )
 }
 
 type PlaylistGenerationRow = {
@@ -751,6 +765,7 @@ type PlaylistGenerationItemRow = {
   state: PlaylistGenerationItemState
   score: string | number
   reason_codes: unknown
+  published_at: Date | string | null
 }
 
 function toGenerationItemRecord(row: PlaylistGenerationItemRow): PlaylistGenerationItemRecord {
@@ -771,6 +786,7 @@ function toGenerationItemRecord(row: PlaylistGenerationItemRow): PlaylistGenerat
 function toGenerationSummary(
   row: PlaylistGenerationRow,
   stateCounts?: Record<PlaylistGenerationItemState, number>,
+  publishedCount = 0,
 ): PlaylistGenerationSummaryRecord {
   const counts = stateCounts ?? emptyStateCounts()
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
@@ -789,7 +805,7 @@ function toGenerationSummary(
       inLibrary: counts.in_library + counts.matched,
       awaitingAcquisition: counts.pending + counts.requested + counts.downloading + counts.imported,
       unavailable: counts.unavailable,
-      published: 0,
+      published: publishedCount,
     },
     plexPlaylistRatingKey: row.plex_playlist_rating_key,
     errorSummary: row.error_summary,

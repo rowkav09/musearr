@@ -38,11 +38,20 @@ existing Plex sync model.
 ### Publish
 
 `playlist.publish` writes a **Musearr-managed** playlist (`playlists.kind =
-'musearr'`, `managed_by_musearr = true`). It is additive and idempotent: only
-items that carry a Plex rating key and have not been published yet are sent, so a
-retry after a partial failure resumes cleanly. A playlist the owner created is
-never modified. If some items stay `unavailable`, the generation is marked
-`partially_published` and remains open for a later additive publish.
+'musearr'`, `managed_by_musearr = true`). It is additive: only items that carry a
+Plex rating key and have not been published yet are sent, so a retry after a
+partial failure resumes without re-adding tracks. A playlist the owner created is
+never modified.
+
+Known gaps in this foundation:
+
+- If the process dies between Plex accepting `createAudioPlaylist` and Musearr
+  recording the link, a retry re-discovers the playlist by title and re-adds the
+  same rating keys; Plex allows duplicate playlist entries. Acceptable for now
+  because the window is small and the effect is cosmetic.
+- If some items end `unavailable`, the generation is marked
+  `partially_published`. There is not yet a route to re-run the publish for those
+  items once they are acquired later; that needs a follow-up.
 
 ## Lidarr connection
 
@@ -63,5 +72,11 @@ request, or the first values Lidarr reports if omitted.
 The planner (`packages/intelligence/src/playlist.ts`) is pure and free of
 randomness: the same seed, library snapshot, and options always produce the same
 plan. Gap suggestions only enter the plan when `acquireMissing` is set and a
-similar-track provider is configured; otherwise the plan is library-only. Local
-AI (`docs/LOCAL_AI.md`) is one possible provider and is off by default.
+similar-track provider returns candidates; otherwise the plan is library-only.
+
+The only similar-track provider shipped today is `LocalAiSimilarTrackProvider`
+(`docs/LOCAL_AI.md`), which is off by default. So with a stock configuration the
+acquisition path is inert even with `acquireMissing: true` and Lidarr connected:
+the plan is library-only and there are no gaps to acquire. A deterministic,
+non-AI suggestion source (e.g. a ListenBrainz/MusicBrainz adapter) feeding
+`externalSuggestions` is the natural follow-up.
