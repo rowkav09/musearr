@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { ConnectionStatus } from './_components/connection-status'
 import { DashboardHome } from './_components/dashboard-home'
 import { MusearrMark } from './_components/musearr-mark'
@@ -19,10 +20,10 @@ export default function HomePage() {
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-bottom__label">YOUR SPACE</div>
-          <a className="nav-item" href="#">
+          <Link className="nav-item" href="/settings">
             <span className="nav-glyph nav-glyph--settings" aria-hidden="true" />
             Settings
-          </a>
+          </Link>
         </div>
       </aside>
 

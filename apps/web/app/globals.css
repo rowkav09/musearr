@@ -156,3 +156,28 @@ button { cursor: pointer; }
 .form-divider::before, .form-divider::after { content: ''; flex: 1; height: 1px; background: #e6ded6; }
 .server-picker { display: grid; gap: 8px; margin: 12px 0 0; color: #4e464d; font-size: 12px; font-weight: 700; }
 .server-picker select { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; color: var(--ink); font-size: 14px; font-weight: 500; }
+
+.settings-panel { display: grid; gap: 22px; }
+.settings-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.source-pill { padding: 6px 10px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; background: #eee7dd; color: #6c615c; }
+.source-pill--database { background: #e8e4ee; color: #4f4178; }
+.source-pill--environment { background: #e9f1ed; color: #3b7460; }
+.source-pill--on { background: #e1ece5; color: #35694f; }
+.source-pill--off { background: #f3ede4; color: #877b71; }
+.linkish-button { margin-left: auto; border: 0; background: none; color: var(--accent-deep); font-size: 12px; font-weight: 750; }
+.linkish-button:hover { text-decoration: underline; }
+.linkish-button:disabled { cursor: not-allowed; opacity: .55; text-decoration: none; }
+.connection-form select { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; outline: none; background: white; color: var(--ink); font-size: 14px; font-weight: 500; transition: border .15s ease, box-shadow .15s ease; }
+.connection-form select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(223,99,83,.13); }
+.connection-form code { padding: 1px 5px; border-radius: 5px; background: #f0eae1; font-size: 11px; }
+.settings-toggle { grid-template-columns: auto 1fr; align-items: start; gap: 11px; }
+.settings-toggle input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.settings-toggle > span { display: grid; gap: 6px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+.settings-actions .primary-button, .settings-actions .secondary-button { justify-self: auto; }
+.settings-usage { padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.settings-usage .eyebrow { color: #a08178; }
+.settings-usage ul { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 10px; }
+.settings-usage li { color: #685f65; font-size: 12px; line-height: 1.6; }
+.settings-usage li strong { color: var(--ink); }
+.settings-usage .field-hint { margin-top: 14px; }
