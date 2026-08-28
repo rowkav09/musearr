@@ -32,10 +32,23 @@ export type PhrasedSummary = {
 }
 
 const SYSTEM_PROMPT =
-  'You rewrite a factual note about why a song was recommended into ONE warm, natural sentence for a ' +
-  'personal music dashboard. Rules: use ONLY the facts given; never invent play counts, dates, ratings, ' +
-  'genres, or opinions; no lists; no preamble or quotation marks; one sentence; keep it under 30 words. ' +
-  'If you cannot improve on the given sentence, return it unchanged.'
+  'You rewrite one factual note about why a song suits a listener into a single warm, natural sentence ' +
+  'for a personal music dashboard. Rules: keep every fact from the note and add none; write for the ' +
+  'listener in second person; never mention playlists, lists, "signals", scores, algorithms, or this ' +
+  'app; no preamble, no quotation marks, no lists; exactly one sentence, under 28 words. Return only ' +
+  'the sentence.'
+
+/** Human-readable hints for the ranker's reason codes, so the model never echoes a raw code. */
+const REASON_HINTS: Record<string, string> = {
+  FAVOURITE_ARTIST: 'an artist they play often',
+  FAVOURITE_GENRE: 'a genre they gravitate to',
+  FORGOTTEN_FAVOURITE: 'something they loved but have not played in a long time',
+  HIGH_RATING: 'a track they rated highly',
+  RECENTLY_ADDED: 'a recent addition to their library',
+  UNDERPLAYED: 'a track they have barely played',
+  UNHEARD: 'a track they have never played',
+  WELL_LOVED: 'a track they have played a lot',
+}
 
 export async function phraseRecommendationSummaries<T extends PhrasableRecommendation>(
   ai: LocalAiProvider,
@@ -80,21 +93,18 @@ export async function phraseRecommendationSummaries<T extends PhrasableRecommend
 }
 
 function buildPrompt(item: PhrasableRecommendation): string {
-  const codes = item.reasons
+  const hints = item.reasons
     .map((reason) =>
       reason && typeof reason === 'object' && 'code' in reason
-        ? String((reason as { code: unknown }).code)
-        : null,
+        ? REASON_HINTS[String((reason as { code: unknown }).code)]
+        : undefined,
     )
-    .filter((code): code is string => Boolean(code))
+    .filter((hint): hint is string => Boolean(hint))
 
   return [
-    `Track: "${item.trackTitle}" by ${item.artistName}`,
-    `Album: ${item.albumTitle}`,
-    `List: ${item.kind}`,
-    codes.length > 0 ? `Signals: ${codes.join(', ')}` : null,
-    `Factual note: ${item.summary}`,
-    'Rewrite the factual note as one sentence.',
+    `Song: "${item.trackTitle}" by ${item.artistName}.`,
+    hints.length > 0 ? `Why it suits them: ${hints.join('; ')}.` : null,
+    `Note to rewrite: ${item.summary}`,
   ]
     .filter((line): line is string => line !== null)
     .join('\n')
