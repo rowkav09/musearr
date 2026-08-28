@@ -11,6 +11,7 @@ type Recommendation = {
   albumTitle: string
   rank: number
   summary: string
+  summaryPhrasing: 'deterministic' | 'local_ai'
 }
 
 type DashboardOverview = {
@@ -345,7 +346,15 @@ function ListeningDashboard({
                     {recommendation.artistName} · {recommendation.albumTitle}
                   </span>
                 </div>
-                <p>{recommendation.summary}</p>
+                <p>
+                  {recommendation.summary}
+                  {recommendation.summaryPhrasing === 'local_ai' && (
+                    <span className="reason-phrasing" title="Reworded by your local model from the same facts">
+                      {' '}
+                      · in its own words
+                    </span>
+                  )}
+                </p>
               </article>
             ))}
           </div>

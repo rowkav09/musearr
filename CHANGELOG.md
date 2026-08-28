@@ -32,6 +32,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   candidate Ollama endpoint without persisting it. The playlist-generation worker
   reads the override before falling back to the environment. `keepAliveSeconds`
   is passed through to Ollama's `keep_alive`.
+- A `/settings` page in the dashboard with a Local AI panel: view the effective
+  configuration and its source, edit and save the override, test the connection,
+  or revert to the environment.
+- Optional AI rewording of recommendation reasons (`phraseRecommendationSummaries`
+  in `@musearr/intelligence`). The deterministic ranker's score, order, and
+  structured reasons are untouched; only the one-line sentence is rephrased from
+  the same facts, and any failure keeps the deterministic wording. Stored per
+  item as `explanation_data.phrasing`; the dashboard marks reworded lines.
+
+### Fixed
+
+- `recommendations.reason_codes` and `explanation_data` were written with a
+  double `JSON.stringify`, so `getLatestRecommendations` returned an empty
+  `summary` and a string `reasons` for real reads. They are now stored as proper
+  jsonb, and the reader tolerates the legacy shape.
 
 ### Changed
 

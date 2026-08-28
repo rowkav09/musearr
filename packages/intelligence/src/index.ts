@@ -46,3 +46,10 @@ export {
   type LocalAiProviderName,
   type OllamaProviderOptions,
 } from './ai/index.js'
+export {
+  REASON_PHRASING_MAX_CHARS,
+  phraseRecommendationSummaries,
+  type PhrasableRecommendation,
+  type PhrasedSummary,
+  type SummaryPhrasing,
+} from './ai/reason-phrasing.js'

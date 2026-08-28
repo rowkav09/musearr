@@ -125,6 +125,7 @@ describe('getDashboardOverview', () => {
           score: 0.82,
           reasons: [{ code: 'FORGOTTEN_FAVOURITE', weight: 0.82 }],
           summary: 'You have not played Slowdive in 284 days.',
+          summaryPhrasing: 'deterministic',
         },
       ],
     })

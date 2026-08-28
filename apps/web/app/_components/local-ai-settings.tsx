@@ -453,10 +453,16 @@ export function LocalAiSettings() {
             (disabled, unreachable, unparseable) falls back to what the deterministic pipeline
             returned.
           </li>
+          <li>
+            <strong>Recommendation reason wording.</strong> After the deterministic ranker picks
+            your Daily Mix and writes a factual reason for each track, Local AI can reword that one
+            sentence in warmer prose using the same facts. The picks, the order, and the structured
+            reasons never change; reworded lines are marked &ldquo;in its own words&rdquo;.
+          </li>
         </ul>
         <p className="field-hint">
-          That is the only task wired today. Ranking, the Daily Mix, and the daily brief are all
-          deterministic and do not call a model.
+          Ranking, track selection, and the daily brief stay fully deterministic and never call a
+          model.
         </p>
       </div>
     </div>

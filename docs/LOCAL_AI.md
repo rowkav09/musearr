@@ -15,6 +15,12 @@ dependency, and nothing is sent to a third party.
   asks the model for tracks similar to a seed and is used only as a source of
   optional "gap" suggestions for playlist generation. Every failure mode
   (disabled, model error, unparseable output) degrades to an empty list.
+- `packages/intelligence/src/ai/reason-phrasing.ts` — `phraseRecommendationSummaries`,
+  which rewrites the deterministic one-line reason on a recommendation into warmer
+  prose grounded in the same facts. The score, ordering, and structured `reasons`
+  are untouched; empty, multi-sentence, over-long, or failed output keeps the
+  deterministic sentence. Persisted per item as `explanation_data.phrasing`
+  (`deterministic` | `local_ai`); the dashboard tags reworded lines.
 - `GET /api/v1/settings/local-ai` — reports the effective state, and whether it
   came from the environment or a stored override (owner only).
 - `PUT /api/v1/settings/local-ai` — replaces the runtime override (a singleton
@@ -52,9 +58,10 @@ runtime on boot; nothing acts on it yet.
 
 ## Recommended models
 
-The only model task wired today is `complete()` — asking for tracks similar to a
-seed and parsing a small JSON array back. That rewards **dense world knowledge**
-and **reliable instruction-following at small size**, not raw parameter count.
+Both wired tasks use `complete()`: similar-track suggestions (parsing a small JSON
+array back) and rewording a recommendation's reason sentence. Both reward **dense
+world knowledge** and **reliable instruction-following at small size**, not raw
+parameter count.
 There is no small music-specialist text model in common registries, so these are
 general models chosen for good music recall per gigabyte. Pull with
 `ollama pull <tag>`; approximate 4-bit sizes shown.

@@ -128,6 +128,7 @@ const DashboardRecommendationSchema = z.object({
   score: z.number().min(0).max(1),
   reasons: z.array(z.unknown()),
   summary: z.string(),
+  summaryPhrasing: z.enum(['deterministic', 'local_ai']),
 })
 
 export const DashboardOverviewSchema = z.object({

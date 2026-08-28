@@ -181,3 +181,4 @@ button { cursor: pointer; }
 .settings-usage li { color: #685f65; font-size: 12px; line-height: 1.6; }
 .settings-usage li strong { color: var(--ink); }
 .settings-usage .field-hint { margin-top: 14px; }
+.reason-phrasing { color: #a08178; font-size: 11px; font-weight: 650; white-space: nowrap; }

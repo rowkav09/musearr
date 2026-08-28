@@ -118,6 +118,8 @@ export type PersistedRecommendation = {
   score: number
   reasons: object[]
   summary: string
+  /** How `summary` was worded. Defaults to 'deterministic' when omitted. */
+  summaryPhrasing?: 'deterministic' | 'local_ai'
 }
 
 export type LatestRecommendation = {
@@ -133,6 +135,7 @@ export type LatestRecommendation = {
   score: number
   reasons: object[]
   summary: string
+  summaryPhrasing: 'deterministic' | 'local_ai'
 }
 
 export type DashboardFavourite = {
@@ -941,8 +944,11 @@ export async function completeRecommendationRun(
           ${recommendation.trackId},
           ${recommendation.rank},
           ${recommendation.score},
-          ${JSON.stringify(recommendation.reasons)}::jsonb,
-          ${JSON.stringify({ summary: recommendation.summary })}::jsonb
+          ${transaction.json(recommendation.reasons as Parameters<typeof transaction.json>[0])},
+          ${transaction.json({
+            summary: recommendation.summary,
+            phrasing: recommendation.summaryPhrasing ?? 'deterministic',
+          })}
         )
       `
     }
@@ -979,8 +985,8 @@ export async function getLatestRecommendations(
       album_title: string
       rank: number
       score: string | number
-      reason_codes: object[]
-      explanation_data: { summary?: string }
+      reason_codes: unknown
+      explanation_data: unknown
     }>
   >`
     WITH latest_runs AS (
@@ -1012,20 +1018,42 @@ export async function getLatestRecommendations(
     ORDER BY latest_runs.created_at DESC, recommendation.rank ASC
   `
 
-  return rows.map((row) => ({
-    runId: row.run_id,
-    kind: row.kind,
-    algorithmVersion: row.algorithm_version,
-    createdAt: serialiseTimestamp(row.created_at) ?? new Date(0).toISOString(),
-    trackId: row.track_id,
-    trackTitle: row.track_title,
-    artistName: row.artist_name,
-    albumTitle: row.album_title,
-    rank: row.rank,
-    score: Number(row.score),
-    reasons: row.reason_codes,
-    summary: row.explanation_data.summary ?? '',
-  }))
+  return rows.map((row) => {
+    const reasons = coerceJson(row.reason_codes)
+    const explanation = coerceJson(row.explanation_data)
+    const explanationRecord =
+      explanation && typeof explanation === 'object' ? (explanation as Record<string, unknown>) : {}
+    return {
+      runId: row.run_id,
+      kind: row.kind,
+      algorithmVersion: row.algorithm_version,
+      createdAt: serialiseTimestamp(row.created_at) ?? new Date(0).toISOString(),
+      trackId: row.track_id,
+      trackTitle: row.track_title,
+      artistName: row.artist_name,
+      albumTitle: row.album_title,
+      rank: row.rank,
+      score: Number(row.score),
+      reasons: Array.isArray(reasons) ? (reasons as object[]) : [],
+      summary: typeof explanationRecord.summary === 'string' ? explanationRecord.summary : '',
+      summaryPhrasing: explanationRecord.phrasing === 'local_ai' ? 'local_ai' : 'deterministic',
+    }
+  })
+}
+
+/**
+ * jsonb columns normally arrive already parsed. Older rows were written with a
+ * double-`JSON.stringify`, so they arrive as a JSON string; unwrap those once.
+ */
+function coerceJson(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value
+  }
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
 }
 
 export async function getOwnerUserIds(database: Database): Promise<string[]> {

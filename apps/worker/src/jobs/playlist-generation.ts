@@ -1,7 +1,6 @@
 import type { MusearrConfig } from '@musearr/config'
 import { MUSEARR_VERSION } from '@musearr/core'
 import {
-  getAiSettings,
   getPlaylistGenerationJobContext,
   getPlaylistLibraryTracks,
   replacePlaylistGenerationItems,
@@ -11,17 +10,15 @@ import {
 } from '@musearr/db'
 import {
   CompositeSimilarTrackProvider,
-  createLocalAiProvider,
   generateFromSeed,
   LocalAiSimilarTrackProvider,
   NullSimilarTrackProvider,
   PLAYLIST_ALGORITHM_VERSION,
-  resolveLocalAiConfig,
   type ExternalTrackSuggestion,
-  type LocalAiConfig,
   type SimilarTrackProvider,
 } from '@musearr/intelligence'
 import { MusicBrainzSimilarTrackProvider } from '@musearr/musicbrainz'
+import { resolveLocalAiProvider } from '../local-ai.js'
 
 export type PlaylistGenerationOutcome = {
   inLibrary: number
@@ -125,28 +122,7 @@ async function resolveSimilarTrackProvider(
     )
   }
 
-  const environmentAi: LocalAiConfig = {
-    enabled: config.MUSEARR_LOCAL_AI_ENABLED,
-    provider: config.MUSEARR_LOCAL_AI_PROVIDER,
-    baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL,
-    model: config.MUSEARR_LOCAL_AI_MODEL,
-    keepAliveSeconds: null,
-  }
-  const override = await getAiSettings(database)
-  const ai = createLocalAiProvider(
-    resolveLocalAiConfig(
-      environmentAi,
-      override
-        ? {
-            enabled: override.enabled,
-            provider: override.provider === 'ollama' ? 'ollama' : 'none',
-            baseUrl: override.baseUrl ?? undefined,
-            model: override.model ?? undefined,
-            keepAliveSeconds: override.keepAliveSeconds,
-          }
-        : null,
-    ),
-  )
+  const ai = await resolveLocalAiProvider(database)
   if (ai.enabled) {
     providers.push(new LocalAiSimilarTrackProvider(ai))
   }
