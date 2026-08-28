@@ -223,3 +223,13 @@ button { cursor: pointer; }
 .discover-kind { display: grid; gap: 14px; }
 .discover-kind .section-heading { margin-bottom: 0; }
 @media (max-width: 900px) { .insights-columns { grid-template-columns: 1fr; } }
+.track-hits { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid #e1d9d1; border-radius: 8px; overflow: hidden; background: #fffdfa; max-height: 260px; overflow-y: auto; }
+.track-hits li + li { border-top: 1px solid #eee8e0; }
+.track-hits button { width: 100%; display: grid; gap: 2px; padding: 9px 12px; border: 0; background: none; text-align: left; font-weight: 500; }
+.track-hits button:hover { background: #f4eee6; }
+.track-hits strong { font-size: 13px; }
+.track-hits span { color: var(--muted); font-size: 11px; }
+.acq-bar { height: 6px; margin: 0 18px 14px; border-radius: 999px; background: #eee7dd; overflow: hidden; }
+.acq-bar span { display: block; height: 100%; background: #4c9a70; transition: width .3s ease; }
+.curation-badge--generating, .curation-badge--awaiting_acquisition, .curation-badge--publishing { background: #fff2d4; color: #8a6620; }
+.curation-badge--ready, .curation-badge--published { background: #e1ece5; color: #35694f; }

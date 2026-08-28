@@ -13,6 +13,7 @@ export {
   getDatabaseStatus,
   getDashboardOverview,
   getLibraryHealth,
+  searchLibraryTracks,
   getListeningInsightSummary,
   getDailyBriefDelivery,
   getDailyBriefForDate,
@@ -117,6 +118,7 @@ export type {
   RecommendationKind,
   SetupStatusRecord,
   LibraryHealth,
+  LibraryTrackHit,
   SyncFailureClassification,
   SyncProgress,
 } from './repository.js'

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { AppShell } from '../_components/app-shell'
+import { LidarrSettings } from '../_components/lidarr-settings'
 import { LocalAiSettings } from '../_components/local-ai-settings'
 
 export const metadata: Metadata = {
@@ -30,6 +31,17 @@ export default function SettingsPage() {
           <span className="quiet-label">Overrides MUSEARR_LOCAL_AI_* when saved.</span>
         </div>
         <LocalAiSettings />
+      </section>
+
+      <section className="section-block" aria-labelledby="lidarr-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">LIDARR</p>
+            <h2 id="lidarr-title">Acquire tracks that aren&apos;t in your library yet</h2>
+          </div>
+          <span className="quiet-label">Optional. Point Musearr at a Lidarr you already run.</span>
+        </div>
+        <LidarrSettings />
       </section>
     </AppShell>
   )

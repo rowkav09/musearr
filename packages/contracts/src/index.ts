@@ -153,6 +153,24 @@ export const LibraryHealthSchema = z.object({
 
 export type LibraryHealth = z.infer<typeof LibraryHealthSchema>
 
+export const LibraryTrackSearchQuerySchema = z.object({
+  q: z.string().trim().min(2).max(120),
+})
+
+export const LibraryTrackHitSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  artistName: z.string(),
+  albumTitle: z.string(),
+})
+
+export const LibraryTrackSearchResponseSchema = z.object({
+  tracks: z.array(LibraryTrackHitSchema),
+})
+
+export type LibraryTrackHit = z.infer<typeof LibraryTrackHitSchema>
+export type LibraryTrackSearchResponse = z.infer<typeof LibraryTrackSearchResponseSchema>
+
 export const DashboardOverviewSchema = z.object({
   library: z.object({
     artistCount: z.number().int().nonnegative(),

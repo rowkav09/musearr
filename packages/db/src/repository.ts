@@ -1234,6 +1234,42 @@ export async function failDiscordDailyBriefDelivery(
   `
 }
 
+export type LibraryTrackHit = {
+  id: string
+  title: string
+  artistName: string
+  albumTitle: string
+}
+
+/** Simple substring search over the mirrored library, for picking a seed track. */
+export async function searchLibraryTracks(
+  database: Database,
+  query: string,
+  limit = 15,
+): Promise<LibraryTrackHit[]> {
+  const term = `%${query.trim().replace(/[%_\\]/g, (character) => `\\${character}`)}%`
+  const rows = await database<
+    Array<{ id: string; title: string; artist_name: string; album_title: string }>
+  >`
+    SELECT t.id, t.title, artist.name AS artist_name, album.title AS album_title
+    FROM tracks t
+    JOIN albums album ON album.id = t.album_id
+    JOIN artists artist ON artist.id = album.artist_id
+    WHERE t.title ILIKE ${term} OR artist.name ILIKE ${term}
+    ORDER BY
+      (artist.name ILIKE ${term}) DESC,
+      artist.name ASC,
+      t.title ASC
+    LIMIT ${Math.min(50, Math.max(1, limit))}
+  `
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    albumTitle: row.album_title,
+  }))
+}
+
 export type LibraryHealth = {
   totals: { artists: number; albums: number; tracks: number; playlists: number; genres: number }
   gaps: {

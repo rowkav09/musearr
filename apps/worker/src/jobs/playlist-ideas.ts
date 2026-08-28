@@ -85,6 +85,10 @@ export async function createPlaylistFromIdea(
     throw new Error('No Plex library is connected.')
   }
 
+  // A playlist, not a genre dump: rank the matches and take a listenable slice,
+  // capped per artist so one prolific artist can't fill it.
+  const selected = curateIdeaSelection(matched, IDEA_PLAYLIST_TARGET, IDEA_PLAYLIST_MAX_PER_ARTIST)
+
   const client = new PlexClient(
     source.baseUrl,
     decryptSecret(source.tokenCiphertext, config.MUSEARR_ENCRYPTION_KEY),
@@ -92,8 +96,48 @@ export async function createPlaylistFromIdea(
   const { plexRatingKey } = await client.createAudioPlaylist(
     source.machineIdentifier,
     idea.name,
-    matched.map((track) => track.plexRatingKey).slice(0, 500),
+    selected.map((track) => track.plexRatingKey),
   )
   await setPlaylistIdeaStatus(database, userId, ideaId, 'created')
-  return { created: true, tracks: matched.length, plexRatingKey }
+  return { created: true, tracks: selected.length, plexRatingKey }
+}
+
+const IDEA_PLAYLIST_TARGET = 40
+const IDEA_PLAYLIST_MAX_PER_ARTIST = 3
+
+type RankableTrack = {
+  trackId: string
+  plexRatingKey: string
+  artistId: string
+  rating: number | null
+  playCount: number
+  lastPlayedAt: string | null
+}
+
+function curateIdeaSelection<T extends RankableTrack>(
+  tracks: T[],
+  target: number,
+  maxPerArtist: number,
+): T[] {
+  const now = Date.now()
+  const ranked = [...tracks].sort((left, right) => rank(right, now) - rank(left, now) || left.trackId.localeCompare(right.trackId))
+  const selected: T[] = []
+  const perArtist = new Map<string, number>()
+  for (const track of ranked) {
+    if (selected.length >= target) break
+    const count = perArtist.get(track.artistId) ?? 0
+    if (count >= maxPerArtist) continue
+    selected.push(track)
+    perArtist.set(track.artistId, count + 1)
+  }
+  return selected
+}
+
+function rank(track: RankableTrack, now: number): number {
+  const ratingSignal = track.rating === null ? 0.5 : Math.min(1, Math.max(0, track.rating / 10))
+  const playSignal = Math.min(1, Math.log1p(Math.max(0, track.playCount)) / Math.log1p(50))
+  const recencySignal = track.lastPlayedAt
+    ? Math.max(0, 1 - (now - Date.parse(track.lastPlayedAt)) / (365 * 86_400_000))
+    : 0.3
+  return ratingSignal * 0.5 + playSignal * 0.35 + recencySignal * 0.15
 }

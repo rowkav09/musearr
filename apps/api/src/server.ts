@@ -20,6 +20,8 @@ import {
   CurationResponseSchema,
   MirroredPlaylistListResponseSchema,
   LibraryHealthSchema,
+  LibraryTrackSearchQuerySchema,
+  LibraryTrackSearchResponseSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   LocalAiSettingsUpdateSchema,
@@ -68,6 +70,7 @@ import {
   getDashboardOverview,
   getDatabaseStatus,
   getLibraryHealth,
+  searchLibraryTracks,
   getLibrarySyncSources,
   getLatestRecommendations,
   getLatestDailyBrief,
@@ -815,6 +818,23 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view library metadata.')
     }
     return reply.send(LibraryHealthSchema.parse(await getLibraryHealth(database)))
+  })
+
+  app.get('/api/v1/library/tracks', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to search your library.')
+    }
+    const parsed = LibraryTrackSearchQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter at least two characters to search.')
+    }
+    return reply.send(
+      LibraryTrackSearchResponseSchema.parse({
+        tracks: await searchLibraryTracks(database, parsed.data.q),
+      }),
+    )
   })
 
   app.get('/api/v1/insights/listening', async (request, reply) => {

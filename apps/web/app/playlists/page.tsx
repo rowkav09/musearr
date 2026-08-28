@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
+import { Acquisitions } from '../_components/acquisitions'
 import { AppShell } from '../_components/app-shell'
+import { PlaylistBuilder } from '../_components/playlist-builder'
 import { PlaylistCuration } from '../_components/playlist-curation'
 import { PlaylistIdeas } from '../_components/playlist-ideas'
 
@@ -22,13 +24,35 @@ export default function PlaylistsPage() {
         </div>
       </section>
 
+      <section className="section-block" aria-labelledby="build-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">BUILD A PLAYLIST</p>
+            <h2 id="build-title">Start from a track you love</h2>
+          </div>
+          <span className="quiet-label">Deterministic plan; optional Lidarr + Plex publish.</span>
+        </div>
+        <PlaylistBuilder />
+      </section>
+
+      <section className="section-block" aria-labelledby="acq-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">ACQUISITIONS</p>
+            <h2 id="acq-title">Builds in progress</h2>
+          </div>
+          <span className="quiet-label">Requested → downloading → imported → matched.</span>
+        </div>
+        <Acquisitions />
+      </section>
+
       <section className="section-block" aria-labelledby="ideas-title">
         <div className="section-heading">
           <div>
             <p className="eyebrow">NEW PLAYLIST IDEAS</p>
             <h2 id="ideas-title">Playlists your library is missing</h2>
           </div>
-          <span className="quiet-label">From a coverage scan; local AI names them.</span>
+          <span className="quiet-label">A coverage scan; local AI names them, then curates ~40 tracks.</span>
         </div>
         <PlaylistIdeas />
       </section>
