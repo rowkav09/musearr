@@ -207,3 +207,37 @@ export const MirroredPlaylistListResponseSchema = z.object({
 
 export type MirroredPlaylist = z.infer<typeof MirroredPlaylistSchema>
 export type MirroredPlaylistListResponse = z.infer<typeof MirroredPlaylistListResponseSchema>
+
+/**
+ * A playlist idea is a proposed NEW playlist derived from a library-coverage
+ * scan: a coherent group of tracks (a genre, a decade, an artist's catalogue,
+ * your unplaylisted favourites) that is under-represented on your playlists.
+ */
+export const PlaylistIdeaStatusSchema = z.enum(['proposed', 'dismissed', 'created'])
+
+export const PlaylistIdeaSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  rationale: z.string(),
+  kind: z.string(),
+  filter: z.unknown(),
+  libraryTrackCount: z.number().int().nonnegative(),
+  coveredTrackCount: z.number().int().nonnegative(),
+  coverageRatio: z.number().min(0).max(1),
+  score: z.number(),
+  source: z.string(),
+  status: PlaylistIdeaStatusSchema,
+  generationId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+})
+
+export const PlaylistIdeaListResponseSchema = z.object({ ideas: z.array(PlaylistIdeaSchema) })
+export const PlaylistIdeaScanAcceptedSchema = z.object({ status: z.literal('scanning') })
+export const PlaylistIdeaCreateAcceptedSchema = z.object({
+  ideaId: z.string().uuid(),
+  status: z.literal('creating'),
+})
+
+export type PlaylistIdeaStatus = z.infer<typeof PlaylistIdeaStatusSchema>
+export type PlaylistIdea = z.infer<typeof PlaylistIdeaSchema>
+export type PlaylistIdeaListResponse = z.infer<typeof PlaylistIdeaListResponseSchema>

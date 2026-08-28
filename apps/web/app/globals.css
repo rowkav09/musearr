@@ -213,3 +213,7 @@ button { cursor: pointer; }
 .chip:hover { border-color: #b9aca0; }
 .chip--on { border-color: #4b9b6d; background: #e9f5ee; color: #2f6b48; }
 .chip--off { border-color: #cf8377; background: #f9ece8; color: #97463a; }
+.curation-limit { display: grid; gap: 6px; max-width: 220px; color: #4e464d; font-size: 12px; font-weight: 700; }
+.curation-limit input { min-height: 40px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; font-size: 14px; }
+.curation-item--proposed { border-color: #ded7ea; }
+.curation-item--created { border-color: #cfe4d8; background: #f4faf6; opacity: .75; }

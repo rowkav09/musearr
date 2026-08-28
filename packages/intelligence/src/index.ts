@@ -67,3 +67,12 @@ export {
   type CurationRerankInput,
   type CurationRerankResult,
 } from './ai/curation-rerank.js'
+export {
+  PLAYLIST_IDEAS_ALGORITHM_VERSION,
+  ideaMatchesTrack,
+  proposePlaylistIdeas,
+  type IdeaFilter,
+  type IdeaLibraryTrack,
+  type PlaylistIdea,
+} from './playlist-ideas.js'
+export { namePlaylistIdeas } from './ai/idea-naming.js'

@@ -40,6 +40,8 @@ export {
   PLAYLIST_GENERATION_RECONCILE_QUEUE,
   PLAYLIST_CURATION_QUEUE,
   PLAYLIST_CURATION_APPLY_QUEUE,
+  PLAYLIST_IDEAS_SCAN_QUEUE,
+  PLAYLIST_IDEA_CREATE_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   reconciliationCron,
@@ -57,6 +59,16 @@ export {
   type AiSettingsRecord,
   type UpsertAiSettings,
 } from './ai-settings.js'
+export {
+  getAllPlaylistedTrackIds,
+  getPlaylistIdea,
+  listPlaylistIdeas,
+  replacePlaylistIdeas,
+  setPlaylistIdeaStatus,
+  type PlaylistIdeaInput,
+  type PlaylistIdeaRecord,
+  type PlaylistIdeaStatus,
+} from './playlist-ideas.js'
 export {
   createCuration,
   createCurationForRatingKey,
@@ -116,6 +128,8 @@ export type {
   PlaylistGenerationReconcileJob,
   PlaylistCurationJob,
   PlaylistCurationApplyJob,
+  PlaylistIdeasScanJob,
+  PlaylistIdeaCreateJob,
   RecommendationRunJob,
   ReconciliationJob,
 } from './jobs.js'

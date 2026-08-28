@@ -103,10 +103,9 @@ export function PlaylistCuration() {
   const [expanded, setExpanded] = useState<Record<string, Curation>>({})
   const [message, setMessage] = useState<string | null>(null)
 
-  const [selectedKey, setSelectedKey] = useState('')
   const [useAi, setUseAi] = useState(false)
   const [limit, setLimit] = useState(20)
-  const [creating, setCreating] = useState(false)
+  const [creatingFor, setCreatingFor] = useState<string | null>(null)
 
   const loadCurations = useCallback(async () => {
     const response = await fetch('/api/v1/playlists/curations')
@@ -141,7 +140,6 @@ export function PlaylistCuration() {
         const curationPayload = (await curationResponse.json()) as { curations: CurationSummary[] }
         setPlaylists(playlistPayload.playlists)
         setCurations(curationPayload.curations)
-        setSelectedKey(playlistPayload.playlists[0]?.plexRatingKey ?? '')
         setView('ready')
       } catch {
         if (!controller.signal.aborted) {
@@ -154,17 +152,14 @@ export function PlaylistCuration() {
     return () => controller.abort()
   }, [])
 
-  async function createCuration() {
-    if (!selectedKey) {
-      return
-    }
-    setCreating(true)
+  async function createCuration(plexPlaylistRatingKey: string) {
+    setCreatingFor(plexPlaylistRatingKey)
     setMessage(null)
     try {
       const response = await fetch('/api/v1/playlists/curations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ plexPlaylistRatingKey: selectedKey, useAi, limit }),
+        body: JSON.stringify({ plexPlaylistRatingKey, useAi, limit }),
       })
       if (!response.ok) {
         throw new Error(await readDetail(response))
@@ -174,7 +169,7 @@ export function PlaylistCuration() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Musearr could not queue that curation.')
     } finally {
-      setCreating(false)
+      setCreatingFor(null)
     }
   }
 
@@ -265,49 +260,52 @@ export function PlaylistCuration() {
       <div className="curation-new">
         {playlists.length === 0 ? (
           <p className="field-hint">
-            No playlists are mirrored yet. Run a Plex playlist sync, then a playlist will be selectable
+            No playlists are mirrored yet. Run a Plex playlist sync and your playlists will appear
             here.
           </p>
         ) : (
-          <div className="connection-form">
-            <label>
-              Playlist
-              <select onChange={(event) => setSelectedKey(event.target.value)} value={selectedKey}>
-                {playlists.map((playlist) => (
-                  <option key={playlist.plexRatingKey} value={playlist.plexRatingKey}>
-                    {playlist.name} · {playlist.trackCount} tracks
-                    {playlist.managedByMusearr ? ' · Musearr' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <>
             <label className="settings-toggle">
               <input checked={useAi} onChange={(event) => setUseAi(event.target.checked)} type="checkbox" />
               <span>
-                Use local AI to re-rank the suggestions
+                Use local AI to re-rank suggestions
                 <span className="field-hint">
                   Only reorders and trims the deterministic shortlist. Off keeps it fully
                   deterministic.
                 </span>
               </span>
             </label>
-            <label>
-              How many to suggest
+            <label className="curation-limit">
+              Suggestions per playlist
               <input
                 inputMode="numeric"
                 onChange={(event) => setLimit(Math.max(1, Math.min(100, Number(event.target.value) || 20)))}
                 value={limit}
               />
             </label>
-            <button
-              className="primary-button"
-              disabled={creating || !selectedKey}
-              onClick={() => void createCuration()}
-              type="button"
-            >
-              {creating ? 'Queueing…' : 'Suggest additions'}
-            </button>
-          </div>
+            <ul className="curation-items">
+              {playlists.map((playlist) => (
+                <li className="curation-item" key={playlist.plexRatingKey}>
+                  <div className="curation-item__song">
+                    <strong>{playlist.name}</strong>
+                    <span>
+                      {playlist.trackCount} tracks{playlist.managedByMusearr ? ' · Musearr-managed' : ''}
+                    </span>
+                  </div>
+                  <div className="curation-item__actions">
+                    <button
+                      className="chip chip--on"
+                      disabled={creatingFor === playlist.plexRatingKey}
+                      onClick={() => void createCuration(playlist.plexRatingKey)}
+                      type="button"
+                    >
+                      {creatingFor === playlist.plexRatingKey ? 'Queueing…' : 'Suggest additions'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         {message && (
           <p className="form-message" role="status">
@@ -330,7 +328,7 @@ export function PlaylistCuration() {
         {curations.length === 0 ? (
           <div className="empty-intelligence">
             <strong>No curations yet.</strong>
-            <span>Pick a playlist above and Musearr will propose tracks from your library to add.</span>
+            <span>Use &ldquo;Suggest additions&rdquo; on a playlist above to get proposals.</span>
           </div>
         ) : (
           curations.map((curation) => {

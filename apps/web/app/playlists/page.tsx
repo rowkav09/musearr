@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { MusearrMark } from '../_components/musearr-mark'
 import { PlaylistCuration } from '../_components/playlist-curation'
+import { PlaylistIdeas } from '../_components/playlist-ideas'
 
 export const metadata: Metadata = {
   title: 'Playlists',
@@ -61,10 +62,21 @@ export default function PlaylistsPage() {
             </div>
           </section>
 
+          <section className="section-block" aria-labelledby="ideas-title">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">NEW PLAYLIST IDEAS</p>
+                <h2 id="ideas-title">Playlists your library is missing</h2>
+              </div>
+              <span className="quiet-label">From a coverage scan; local AI names them.</span>
+            </div>
+            <PlaylistIdeas />
+          </section>
+
           <section className="section-block" aria-labelledby="curation-title">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">CURATION</p>
+                <p className="eyebrow">YOUR PLAYLISTS</p>
                 <h2 id="curation-title">Suggest additions, then apply the ones you want</h2>
               </div>
               <span className="quiet-label">Deterministic by default; local AI re-rank optional.</span>

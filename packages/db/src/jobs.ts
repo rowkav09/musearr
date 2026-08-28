@@ -11,6 +11,8 @@ export const PLAYLIST_PUBLISH_QUEUE = 'playlist.publish'
 export const PLAYLIST_GENERATION_RECONCILE_QUEUE = 'playlist.generate.reconcile'
 export const PLAYLIST_CURATION_QUEUE = 'playlist.curate'
 export const PLAYLIST_CURATION_APPLY_QUEUE = 'playlist.curate.apply'
+export const PLAYLIST_IDEAS_SCAN_QUEUE = 'playlist.ideas.scan'
+export const PLAYLIST_IDEA_CREATE_QUEUE = 'playlist.idea.create'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
 const DAILY_BRIEF_SCHEDULE_KEY = 'default'
 const PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY = 'default'
@@ -68,6 +70,17 @@ export type PlaylistCurationJob = {
 
 export type PlaylistCurationApplyJob = {
   curationId: string
+  trigger: 'manual'
+}
+
+export type PlaylistIdeasScanJob = {
+  userId: string
+  trigger: 'manual'
+}
+
+export type PlaylistIdeaCreateJob = {
+  userId: string
+  ideaId: string
   trigger: 'manual'
 }
 
@@ -205,6 +218,19 @@ export async function startJobQueue(
     retentionSeconds: 14 * 24 * 60 * 60,
   })
   await boss.createQueue(PLAYLIST_CURATION_APPLY_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_IDEAS_SCAN_QUEUE, {
+    retryLimit: 1,
+    retryDelay: 15,
+    expireInSeconds: 600,
+    retentionSeconds: 7 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_IDEA_CREATE_QUEUE, {
     retryLimit: 3,
     retryDelay: 30,
     retryBackoff: true,

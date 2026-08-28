@@ -14,6 +14,8 @@ import {
   PLAYLIST_GENERATION_RECONCILE_QUEUE,
   PLAYLIST_CURATION_QUEUE,
   PLAYLIST_CURATION_APPLY_QUEUE,
+  PLAYLIST_IDEAS_SCAN_QUEUE,
+  PLAYLIST_IDEA_CREATE_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   scheduleLibraryReconciliation,
@@ -30,6 +32,8 @@ import {
   type PlaylistGenerationReconcileJob,
   type PlaylistCurationJob,
   type PlaylistCurationApplyJob,
+  type PlaylistIdeasScanJob,
+  type PlaylistIdeaCreateJob,
   type RecommendationRunJob,
   type ReconciliationJob,
 } from '@musearr/db'
@@ -43,6 +47,7 @@ import { requestPlaylistAcquisitions } from './jobs/playlist-acquisition.js'
 import { reconcilePlaylistGenerations } from './jobs/playlist-reconcile.js'
 import { proposeCuration } from './jobs/playlist-curation.js'
 import { applyCuration } from './jobs/playlist-curation-apply.js'
+import { scanPlaylistIdeas, createPlaylistFromIdea } from './jobs/playlist-ideas.js'
 import { publishPlaylistToPlex } from './jobs/playlist-publish.js'
 import { sanitisePlaylistFailure } from './jobs/playlist-failures.js'
 
@@ -256,6 +261,28 @@ async function start(): Promise<void> {
       for (const job of jobs) {
         const result = await applyCuration(database, config, job.data.curationId)
         console.info({ jobId: job.id, ...result }, 'Playlist curation applied')
+      }
+    },
+  )
+
+  await jobQueue.work<PlaylistIdeasScanJob>(
+    PLAYLIST_IDEAS_SCAN_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const result = await scanPlaylistIdeas(database, job.data.userId)
+        console.info({ jobId: job.id, ...result }, 'Playlist ideas scan completed')
+      }
+    },
+  )
+
+  await jobQueue.work<PlaylistIdeaCreateJob>(
+    PLAYLIST_IDEA_CREATE_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const result = await createPlaylistFromIdea(database, config, job.data.userId, job.data.ideaId)
+        console.info({ jobId: job.id, ...result }, 'Playlist created from idea')
       }
     },
   )

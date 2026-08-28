@@ -27,6 +27,9 @@ import {
   LocalAiTestRequestSchema,
   LocalAiTestResultSchema,
   MusicBrainzStatusSchema,
+  PlaylistIdeaCreateAcceptedSchema,
+  PlaylistIdeaListResponseSchema,
+  PlaylistIdeaScanAcceptedSchema,
   PlaylistGenerationAcceptedSchema,
   PlaylistGenerationListResponseSchema,
   PlaylistGenerationResponseSchema,
@@ -51,11 +54,16 @@ import {
   DAILY_BRIEF_QUEUE,
   getAiSettings,
   getCuration,
+  getPlaylistIdea,
   listCuratablePlaylists,
   listCurations,
+  listPlaylistIdeas,
   PLAYLIST_CURATION_APPLY_QUEUE,
   PLAYLIST_CURATION_QUEUE,
+  PLAYLIST_IDEA_CREATE_QUEUE,
+  PLAYLIST_IDEAS_SCAN_QUEUE,
   setCurationItemDecision,
+  setPlaylistIdeaStatus,
   getDashboardOverview,
   getDatabaseStatus,
   getLibrarySyncSources,
@@ -897,6 +905,95 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return reply.send(
       MirroredPlaylistListResponseSchema.parse({ playlists: await listCuratablePlaylists(database) }),
     )
+  })
+
+  app.get('/api/v1/playlists/ideas', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view playlist ideas.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage playlists.')
+    }
+    return reply.send(
+      PlaylistIdeaListResponseSchema.parse({ ideas: await listPlaylistIdeas(database, request.user.sub) }),
+    )
+  })
+
+  app.post('/api/v1/playlists/ideas/scan', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to scan for playlist ideas.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage playlists.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+    await readyJobQueue.send(
+      PLAYLIST_IDEAS_SCAN_QUEUE,
+      { userId: request.user.sub, trigger: 'manual' },
+      { singletonKey: request.user.sub, singletonSeconds: 30 },
+    )
+    return reply.code(202).send(PlaylistIdeaScanAcceptedSchema.parse({ status: 'scanning' }))
+  })
+
+  app.post('/api/v1/playlists/ideas/:id/dismiss', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to manage playlist ideas.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage playlists.')
+    }
+    const id = uuidParam(request.params)
+    if (!id) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid playlist idea.')
+    }
+    const updated = await setPlaylistIdeaStatus(database, request.user.sub, id, 'dismissed')
+    if (!updated) {
+      return sendProblem(reply, 404, 'IDEA_NOT_FOUND', 'No playlist idea matched this request.')
+    }
+    return reply.send(
+      PlaylistIdeaListResponseSchema.parse({ ideas: await listPlaylistIdeas(database, request.user.sub) }),
+    )
+  })
+
+  app.post('/api/v1/playlists/ideas/:id/create', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to create a playlist.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage playlists.')
+    }
+    const id = uuidParam(request.params)
+    if (!id) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid playlist idea.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+    const idea = await getPlaylistIdea(database, request.user.sub, id)
+    if (!idea) {
+      return sendProblem(reply, 404, 'IDEA_NOT_FOUND', 'No playlist idea matched this request.')
+    }
+    if (idea.status === 'created') {
+      return sendProblem(reply, 409, 'IDEA_ALREADY_CREATED', 'This idea has already been made into a playlist.')
+    }
+    await readyJobQueue.send(
+      PLAYLIST_IDEA_CREATE_QUEUE,
+      { userId: request.user.sub, ideaId: id, trigger: 'manual' },
+      { singletonKey: id },
+    )
+    return reply.code(202).send(PlaylistIdeaCreateAcceptedSchema.parse({ ideaId: id, status: 'creating' }))
   })
 
   app.post('/api/v1/playlists/curations', async (request, reply) => {
