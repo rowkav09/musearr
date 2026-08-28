@@ -34,7 +34,8 @@ export const PlaylistGenerationStatusSchema = z.enum([
 export const GeneratePlaylistRequestSchema = z.object({
   seedTrackId: z.string().uuid(),
   name: z.string().trim().min(1).max(120).optional(),
-  targetSize: z.number().int().min(5).max(100).default(25),
+  /** A target, not a quota: the planner returns up to this many that genuinely fit. */
+  targetSize: z.number().int().min(1).max(200).default(25),
   /** Ask Lidarr to acquire suggestions that are not already in the library. */
   acquireMissing: z.boolean().default(false),
   /** Publish the finished playlist back to Plex as a Musearr-managed playlist. */

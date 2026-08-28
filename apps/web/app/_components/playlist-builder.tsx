@@ -15,10 +15,11 @@ async function readDetail(response: Response): Promise<string> {
 
 export function PlaylistBuilder() {
   const [query, setQuery] = useState('')
-  const [hits, setHits] = useState<TrackHit[]>([])
+  const [hits, setHits] = useState<TrackHit[] | null>(null)
+  const [searching, setSearching] = useState(false)
   const [seed, setSeed] = useState<TrackHit | null>(null)
   const [name, setName] = useState('')
-  const [size, setSize] = useState(25)
+  const [size, setSize] = useState('25')
   const [acquireMissing, setAcquireMissing] = useState(false)
   const [publishToPlex, setPublishToPlex] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -26,15 +27,15 @@ export function PlaylistBuilder() {
   const [ok, setOk] = useState(false)
 
   const term = query.trim()
-  const showHits = !seed && term.length >= 2
 
   useEffect(() => {
-    if (!showHits) {
+    if (seed || term.length < 2) {
       return
     }
     const controller = new AbortController()
     const handle = setTimeout(() => {
       void (async () => {
+        setSearching(true)
         try {
           const response = await fetch(`/api/v1/library/tracks?q=${encodeURIComponent(term)}`, {
             signal: controller.signal,
@@ -42,9 +43,13 @@ export function PlaylistBuilder() {
           if (response.ok) {
             const payload = (await response.json()) as { tracks: TrackHit[] }
             setHits(payload.tracks)
+          } else {
+            setHits([])
           }
         } catch {
-          /* ignore */
+          // aborted or offline; leave whatever we had
+        } finally {
+          setSearching(false)
         }
       })()
     }, 250)
@@ -52,10 +57,13 @@ export function PlaylistBuilder() {
       controller.abort()
       clearTimeout(handle)
     }
-  }, [term, showHits])
+  }, [term, seed])
 
   async function build() {
-    if (!seed) return
+    if (!seed) {
+      return
+    }
+    const parsedSize = Number.parseInt(size, 10)
     setBusy(true)
     setMessage(null)
     try {
@@ -65,17 +73,22 @@ export function PlaylistBuilder() {
         body: JSON.stringify({
           seedTrackId: seed.id,
           ...(name.trim() ? { name: name.trim() } : {}),
-          targetSize: size,
+          ...(Number.isInteger(parsedSize) && parsedSize > 0
+            ? { targetSize: Math.min(200, parsedSize) }
+            : {}),
           acquireMissing,
           publishToPlex,
         }),
       })
-      if (!response.ok) throw new Error(await readDetail(response))
+      if (!response.ok) {
+        throw new Error(await readDetail(response))
+      }
       setOk(true)
       setMessage('Building it locally. Track its progress under “Acquisitions” below.')
       setSeed(null)
       setName('')
       setQuery('')
+      setHits(null)
     } catch (error) {
       setOk(false)
       setMessage(error instanceof Error ? error.message : 'Musearr could not start that.')
@@ -87,65 +100,81 @@ export function PlaylistBuilder() {
   return (
     <div className="settings-panel">
       <div className="curation-new">
-        {seed ? (
-          <div className="verified-server">
-            <span className="verified-server__check" aria-hidden="true">
-              ♪
-            </span>
-            <span>
-              <strong>
-                {seed.title} — {seed.artistName}
-              </strong>
-              <small>{seed.albumTitle}</small>
-            </span>
-            <button
-              className="linkish-button"
-              onClick={() => {
-                setSeed(null)
-                setQuery('')
-              }}
-              type="button"
-            >
-              Change
-            </button>
-          </div>
-        ) : (
-          <label>
-            Seed track
-            <input
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your library…"
-              value={query}
-            />
-            {showHits && hits.length > 0 && (
-              <ul className="track-hits">
-                {hits.map((hit) => (
-                  <li key={hit.id}>
-                    <button onClick={() => setSeed(hit)} type="button">
-                      <strong>{hit.title}</strong>
-                      <span>
-                        {hit.artistName} · {hit.albumTitle}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </label>
-        )}
+        <div className="seed-field">
+          <span className="seed-field__label">Seed track</span>
+          {seed ? (
+            <div className="verified-server">
+              <span className="verified-server__check" aria-hidden="true">
+                ♪
+              </span>
+              <span>
+                <strong>
+                  {seed.title} — {seed.artistName}
+                </strong>
+                <small>{seed.albumTitle}</small>
+              </span>
+              <button
+                className="linkish-button"
+                onClick={() => {
+                  setSeed(null)
+                  setQuery('')
+                  setHits(null)
+                }}
+                type="button"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="seed-search">
+              <input
+                aria-label="Search your library for a seed track"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search your library…"
+                value={query}
+              />
+              {term.length >= 2 && (
+                <ul className="track-hits">
+                  {searching && hits === null ? (
+                    <li className="track-hits__note">Searching…</li>
+                  ) : hits && hits.length === 0 ? (
+                    <li className="track-hits__note">No tracks matched.</li>
+                  ) : (
+                    (hits ?? []).map((hit) => (
+                      <li key={hit.id}>
+                        <button onClick={() => setSeed(hit)} type="button">
+                          <strong>{hit.title}</strong>
+                          <span>
+                            {hit.artistName} · {hit.albumTitle}
+                          </span>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         <label>
-          Name <span className="field-hint">Optional — defaults to “Like &lt;seed&gt;”.</span>
-          <input onChange={(event) => setName(event.target.value)} value={name} placeholder="Late night drive" />
+          Name
+          <input
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Optional — defaults to “Like <seed track>”"
+            value={name}
+          />
         </label>
 
         <label className="curation-limit">
-          Length
+          About how many tracks
           <input
             inputMode="numeric"
-            onChange={(event) => setSize(Math.max(5, Math.min(100, Number(event.target.value) || 25)))}
+            onChange={(event) => setSize(event.target.value.replace(/[^\d]/g, ''))}
+            placeholder="25"
             value={size}
           />
+          <span className="field-hint">A target — you get up to this many that genuinely fit.</span>
         </label>
 
         <label className="settings-toggle">
@@ -169,8 +198,12 @@ export function PlaylistBuilder() {
             type="checkbox"
           />
           <span>
-            Publish to Plex as a Musearr playlist
-            <span className="field-hint">Additive and idempotent; never touches your own playlists.</span>
+            Also create it in Plex
+            <span className="field-hint">
+              Musearr adds a brand-new playlist to your Plex server with these tracks (prefixed so
+              it&apos;s clearly Musearr&apos;s). It never edits or reorders your own playlists. Off
+              keeps the result inside Musearr only.
+            </span>
           </span>
         </label>
 

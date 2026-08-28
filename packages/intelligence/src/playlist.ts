@@ -90,7 +90,7 @@ export function generateFromSeed(
   library: PlaylistLibraryTrack[],
   options: GeneratePlaylistOptions = {},
 ): PlaylistPlan {
-  const targetSize = clampInt(options.targetSize ?? DEFAULT_TARGET_SIZE, 5, 100)
+  const targetSize = clampInt(options.targetSize ?? DEFAULT_TARGET_SIZE, 1, 200)
   const seedGenres = new Set(seed.genres.map(normaliseGenre).filter(Boolean))
   const maxPlayCount = Math.max(1, ...library.map((track) => track.playCount))
 

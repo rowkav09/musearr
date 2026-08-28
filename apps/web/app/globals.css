@@ -233,3 +233,8 @@ button { cursor: pointer; }
 .acq-bar span { display: block; height: 100%; background: #4c9a70; transition: width .3s ease; }
 .curation-badge--generating, .curation-badge--awaiting_acquisition, .curation-badge--publishing { background: #fff2d4; color: #8a6620; }
 .curation-badge--ready, .curation-badge--published { background: #e1ece5; color: #35694f; }
+.seed-field { display: grid; gap: 8px; color: #4e464d; font-size: 12px; font-weight: 700; }
+.seed-search { position: relative; }
+.seed-search input { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; outline: none; background: white; font-size: 14px; font-weight: 500; }
+.seed-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(223,99,83,.13); }
+.track-hits__note { padding: 10px 12px; color: var(--muted); font-size: 12px; font-weight: 500; }
