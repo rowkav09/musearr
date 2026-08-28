@@ -19,6 +19,7 @@ import {
   CurationListResponseSchema,
   CurationResponseSchema,
   MirroredPlaylistListResponseSchema,
+  LibraryHealthSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   LocalAiSettingsUpdateSchema,
@@ -66,6 +67,7 @@ import {
   setPlaylistIdeaStatus,
   getDashboardOverview,
   getDatabaseStatus,
+  getLibraryHealth,
   getLibrarySyncSources,
   getLatestRecommendations,
   getLatestDailyBrief,
@@ -804,6 +806,15 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const overview = await getDashboardOverview(database, request.user.sub)
     return reply.send(DashboardOverviewSchema.parse(overview))
+  })
+
+  app.get('/api/v1/metadata/health', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view library metadata.')
+    }
+    return reply.send(LibraryHealthSchema.parse(await getLibraryHealth(database)))
   })
 
   app.get('/api/v1/insights/listening', async (request, reply) => {

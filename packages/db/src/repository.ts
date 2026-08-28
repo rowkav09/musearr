@@ -188,6 +188,19 @@ export type ListeningInsightSummary = {
     coverage: ListeningCoverage
   }
   topArtists: DashboardFavourite[]
+  /**
+   * Lifetime figures straight from the Plex play counts (`user_item_state`).
+   * Always populated, so the insights view has something to show before any
+   * day-bucketed rollups exist.
+   */
+  allTime: {
+    totalPlays: number
+    playedTracks: number
+    ratedTracks: number
+    topArtists: DashboardFavourite[]
+    topTracks: Array<{ id: string; name: string; artistName: string; playCount: number }>
+    topGenres: DashboardFavourite[]
+  }
 }
 
 export type DailyBriefCard = {
@@ -1221,6 +1234,85 @@ export async function failDiscordDailyBriefDelivery(
   `
 }
 
+export type LibraryHealth = {
+  totals: { artists: number; albums: number; tracks: number; playlists: number; genres: number }
+  gaps: {
+    tracksMissingYear: number
+    tracksMissingGenre: number
+    tracksMissingDuration: number
+    albumsMissingYear: number
+    unresolvedPlaylistItems: number
+  }
+  playlistsWithUnresolved: Array<{ name: string; unresolved: number }>
+}
+
+export async function getLibraryHealth(database: Database): Promise<LibraryHealth> {
+  const [totalsRows, gapRows, playlistRows] = await Promise.all([
+    database<
+      Array<{ artists: string; albums: string; tracks: string; playlists: string; genres: string }>
+    >`
+      SELECT
+        (SELECT COUNT(*) FROM artists)::text AS artists,
+        (SELECT COUNT(*) FROM albums)::text AS albums,
+        (SELECT COUNT(*) FROM tracks)::text AS tracks,
+        (SELECT COUNT(*) FROM playlists)::text AS playlists,
+        (SELECT COUNT(*) FROM genres)::text AS genres
+    `,
+    database<
+      Array<{
+        tracks_missing_year: string
+        tracks_missing_genre: string
+        tracks_missing_duration: string
+        albums_missing_year: string
+        unresolved_playlist_items: string
+      }>
+    >`
+      SELECT
+        (SELECT COUNT(*) FROM tracks t JOIN albums a ON a.id = t.album_id WHERE a.year IS NULL)::text
+          AS tracks_missing_year,
+        (SELECT COUNT(*) FROM tracks t WHERE NOT EXISTS (
+          SELECT 1 FROM item_genres g WHERE g.entity_type = 'track' AND g.entity_id = t.id
+        ))::text AS tracks_missing_genre,
+        (SELECT COUNT(*) FROM tracks WHERE duration_ms IS NULL OR duration_ms = 0)::text
+          AS tracks_missing_duration,
+        (SELECT COUNT(*) FROM albums WHERE year IS NULL)::text AS albums_missing_year,
+        (SELECT COUNT(*) FROM playlist_items WHERE track_id IS NULL)::text AS unresolved_playlist_items
+    `,
+    database<Array<{ name: string; unresolved: string }>>`
+      SELECT p.name, COUNT(*)::text AS unresolved
+      FROM playlist_items item
+      JOIN playlists p ON p.id = item.playlist_id
+      WHERE item.track_id IS NULL
+      GROUP BY p.id, p.name
+      ORDER BY COUNT(*) DESC
+      LIMIT 10
+    `,
+  ])
+
+  const totals = totalsRows[0]
+  const gaps = gapRows[0]
+  return {
+    totals: {
+      artists: numericValue(totals?.artists),
+      albums: numericValue(totals?.albums),
+      tracks: numericValue(totals?.tracks),
+      playlists: numericValue(totals?.playlists),
+      genres: numericValue(totals?.genres),
+    },
+    gaps: {
+      tracksMissingYear: numericValue(gaps?.tracks_missing_year),
+      tracksMissingGenre: numericValue(gaps?.tracks_missing_genre),
+      tracksMissingDuration: numericValue(gaps?.tracks_missing_duration),
+      albumsMissingYear: numericValue(gaps?.albums_missing_year),
+      unresolvedPlaylistItems: numericValue(gaps?.unresolved_playlist_items),
+    },
+    playlistsWithUnresolved: playlistRows.map((row) => ({
+      name: row.name,
+      unresolved: numericValue(row.unresolved),
+    })),
+  }
+}
+
 export async function getDashboardOverview(database: Database, userId: string): Promise<DashboardOverview> {
   const [libraryRows, listeningRows, artistRows, genreRows, syncRows, dailyMix] = await Promise.all([
     database<
@@ -1346,7 +1438,8 @@ export async function getListeningInsightSummary(
 ): Promise<ListeningInsightSummary> {
   const endDate = dateInTimezone(new Date(), timezone)
   const startDate = subtractCalendarDays(endDate, days - 1)
-  const [totalsRows, artistRows] = await Promise.all([
+  const [totalsRows, artistRows, allTimeTotalsRows, allTimeArtistRows, allTimeTrackRows, allTimeGenreRows] =
+    await Promise.all([
     database<
       Array<{
         reported_plays: number | string
@@ -1413,6 +1506,50 @@ export async function getListeningInsightSummary(
       ORDER BY play_count DESC, artist.name ASC
       LIMIT 5
     `,
+    database<
+      Array<{ total_plays: string | number; played_tracks: string | number; rated_tracks: string | number }>
+    >`
+      SELECT
+        COALESCE(SUM(play_count), 0)::bigint AS total_plays,
+        COUNT(*) FILTER (WHERE play_count > 0)::integer AS played_tracks,
+        COUNT(*) FILTER (WHERE rating IS NOT NULL)::integer AS rated_tracks
+      FROM user_item_state
+      WHERE user_id = ${userId} AND entity_type = 'track'
+    `,
+    database<Array<{ id: string; name: string; play_count: string | number }>>`
+      SELECT artist.id, artist.name, COALESCE(SUM(state.play_count), 0)::bigint AS play_count
+      FROM user_item_state state
+      JOIN tracks track ON track.id = state.entity_id
+      JOIN albums album ON album.id = track.album_id
+      JOIN artists artist ON artist.id = album.artist_id
+      WHERE state.user_id = ${userId} AND state.entity_type = 'track'
+      GROUP BY artist.id, artist.name
+      HAVING COALESCE(SUM(state.play_count), 0) > 0
+      ORDER BY play_count DESC, artist.name ASC
+      LIMIT 8
+    `,
+    database<Array<{ id: string; name: string; artist_name: string; play_count: string | number }>>`
+      SELECT track.id, track.title AS name, artist.name AS artist_name, state.play_count::bigint AS play_count
+      FROM user_item_state state
+      JOIN tracks track ON track.id = state.entity_id
+      JOIN albums album ON album.id = track.album_id
+      JOIN artists artist ON artist.id = album.artist_id
+      WHERE state.user_id = ${userId} AND state.entity_type = 'track' AND state.play_count > 0
+      ORDER BY state.play_count DESC, artist.name ASC, track.title ASC
+      LIMIT 10
+    `,
+    database<Array<{ id: string; name: string; play_count: string | number }>>`
+      SELECT genre.id, genre.display_name AS name, COALESCE(SUM(state.play_count), 0)::bigint AS play_count
+      FROM user_item_state state
+      JOIN item_genres item_genre
+        ON item_genre.entity_type = 'track' AND item_genre.entity_id = state.entity_id
+      JOIN genres genre ON genre.id = item_genre.genre_id
+      WHERE state.user_id = ${userId} AND state.entity_type = 'track'
+      GROUP BY genre.id, genre.display_name
+      HAVING COALESCE(SUM(state.play_count), 0) > 0
+      ORDER BY play_count DESC, genre.display_name ASC
+      LIMIT 8
+    `,
   ])
 
   const totals = totalsRows[0]
@@ -1436,6 +1573,27 @@ export async function getListeningInsightSummary(
       name: artist.name,
       playCount: numericValue(artist.play_count),
     })),
+    allTime: {
+      totalPlays: numericValue(allTimeTotalsRows[0]?.total_plays),
+      playedTracks: numericValue(allTimeTotalsRows[0]?.played_tracks),
+      ratedTracks: numericValue(allTimeTotalsRows[0]?.rated_tracks),
+      topArtists: allTimeArtistRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        playCount: numericValue(row.play_count),
+      })),
+      topTracks: allTimeTrackRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        artistName: row.artist_name,
+        playCount: numericValue(row.play_count),
+      })),
+      topGenres: allTimeGenreRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        playCount: numericValue(row.play_count),
+      })),
+    },
   }
 }
 

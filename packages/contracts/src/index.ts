@@ -131,6 +131,28 @@ const DashboardRecommendationSchema = z.object({
   summaryPhrasing: z.enum(['deterministic', 'local_ai']),
 })
 
+export const LibraryHealthSchema = z.object({
+  totals: z.object({
+    artists: z.number().int().nonnegative(),
+    albums: z.number().int().nonnegative(),
+    tracks: z.number().int().nonnegative(),
+    playlists: z.number().int().nonnegative(),
+    genres: z.number().int().nonnegative(),
+  }),
+  gaps: z.object({
+    tracksMissingYear: z.number().int().nonnegative(),
+    tracksMissingGenre: z.number().int().nonnegative(),
+    tracksMissingDuration: z.number().int().nonnegative(),
+    albumsMissingYear: z.number().int().nonnegative(),
+    unresolvedPlaylistItems: z.number().int().nonnegative(),
+  }),
+  playlistsWithUnresolved: z.array(
+    z.object({ name: z.string(), unresolved: z.number().int().nonnegative() }),
+  ),
+})
+
+export type LibraryHealth = z.infer<typeof LibraryHealthSchema>
+
 export const DashboardOverviewSchema = z.object({
   library: z.object({
     artistCount: z.number().int().nonnegative(),
@@ -211,6 +233,21 @@ export const ListeningInsightSummarySchema = z.object({
     coverage: ListeningCoverageSchema,
   }),
   topArtists: z.array(DashboardFavouriteSchema),
+  allTime: z.object({
+    totalPlays: z.number().int().nonnegative(),
+    playedTracks: z.number().int().nonnegative(),
+    ratedTracks: z.number().int().nonnegative(),
+    topArtists: z.array(DashboardFavouriteSchema),
+    topTracks: z.array(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string(),
+        artistName: z.string(),
+        playCount: z.number().int().nonnegative(),
+      }),
+    ),
+    topGenres: z.array(DashboardFavouriteSchema),
+  }),
 })
 
 export type SetupPhase = z.infer<typeof SetupPhaseSchema>

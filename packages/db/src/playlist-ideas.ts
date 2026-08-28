@@ -30,10 +30,28 @@ export type PlaylistIdeaRecord = {
   createdAt: string
 }
 
-/** Every track id that sits on at least one mirrored playlist. */
-export async function getAllPlaylistedTrackIds(database: Database): Promise<string[]> {
+/**
+ * Track ids that sit on at least one *curated* playlist. Catch-all playlists
+ * (Plex's "All Music", "Recently Added", or any user list holding more than
+ * `maxShare` of the whole library) are ignored, otherwise every group looks
+ * fully covered and the scan finds nothing to suggest.
+ */
+export async function getAllPlaylistedTrackIds(
+  database: Database,
+  maxShare = 0.5,
+): Promise<string[]> {
   const rows = await database<Array<{ track_id: string }>>`
-    SELECT DISTINCT track_id FROM playlist_items WHERE track_id IS NOT NULL
+    WITH sizes AS (
+      SELECT playlist_id, COUNT(*) FILTER (WHERE track_id IS NOT NULL) AS n
+      FROM playlist_items
+      GROUP BY playlist_id
+    ),
+    total AS (SELECT GREATEST(COUNT(*), 1) AS n FROM tracks)
+    SELECT DISTINCT item.track_id
+    FROM playlist_items item
+    JOIN sizes ON sizes.playlist_id = item.playlist_id
+    WHERE item.track_id IS NOT NULL
+      AND sizes.n::numeric <= ${maxShare} * (SELECT n FROM total)
   `
   return rows.map((row) => row.track_id)
 }

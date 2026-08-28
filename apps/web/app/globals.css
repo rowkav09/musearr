@@ -217,3 +217,9 @@ button { cursor: pointer; }
 .curation-limit input { min-height: 40px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; font-size: 14px; }
 .curation-item--proposed { border-color: #ded7ea; }
 .curation-item--created { border-color: #cfe4d8; background: #f4faf6; opacity: .75; }
+.insights-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; }
+.insights-block { display: grid; gap: 12px; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.insights-block .eyebrow { color: #a08178; }
+.discover-kind { display: grid; gap: 14px; }
+.discover-kind .section-heading { margin-bottom: 0; }
+@media (max-width: 900px) { .insights-columns { grid-template-columns: 1fr; } }

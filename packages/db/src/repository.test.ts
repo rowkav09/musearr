@@ -216,6 +216,20 @@ describe('getListeningInsightSummary', () => {
             },
           ]
         }
+        if (query.includes('AS total_plays')) {
+          return [{ total_plays: '340', played_tracks: '58', rated_tracks: '19' }]
+        }
+        if (query.includes('FROM user_item_state state') && query.includes('artist.name AS artist_name')) {
+          return [
+            { id: 'aa11f7cd-1111-4111-8111-111111111111', name: 'Alison', artist_name: 'Slowdive', play_count: '16' },
+          ]
+        }
+        if (query.includes('FROM user_item_state state') && query.includes('JOIN artists artist')) {
+          return [{ id: 'f9bbd5e7-bd67-4ae7-afc5-358f232b5b4b', name: 'Slowdive', play_count: '42' }]
+        }
+        if (query.includes('genre.display_name AS name')) {
+          return [{ id: 'a062ecb4-bb5c-46cd-8b29-8a53c06cb984', name: 'Dream pop', play_count: '58' }]
+        }
         throw new Error(`Unexpected query: ${query}`)
       }) as unknown as Database
 
@@ -243,6 +257,21 @@ describe('getListeningInsightSummary', () => {
             playCount: 6,
           },
         ],
+        allTime: {
+          totalPlays: 340,
+          playedTracks: 58,
+          ratedTracks: 19,
+          topArtists: [{ id: 'f9bbd5e7-bd67-4ae7-afc5-358f232b5b4b', name: 'Slowdive', playCount: 42 }],
+          topTracks: [
+            {
+              id: 'aa11f7cd-1111-4111-8111-111111111111',
+              name: 'Alison',
+              artistName: 'Slowdive',
+              playCount: 16,
+            },
+          ],
+          topGenres: [{ id: 'a062ecb4-bb5c-46cd-8b29-8a53c06cb984', name: 'Dream pop', playCount: 58 }],
+        },
       })
     } finally {
       vi.useRealTimers()
