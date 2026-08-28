@@ -9,6 +9,8 @@ export const PLAYLIST_GENERATION_QUEUE = 'playlist.generate'
 export const PLAYLIST_ACQUISITION_QUEUE = 'playlist.acquire'
 export const PLAYLIST_PUBLISH_QUEUE = 'playlist.publish'
 export const PLAYLIST_GENERATION_RECONCILE_QUEUE = 'playlist.generate.reconcile'
+export const PLAYLIST_CURATION_QUEUE = 'playlist.curate'
+export const PLAYLIST_CURATION_APPLY_QUEUE = 'playlist.curate.apply'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
 const DAILY_BRIEF_SCHEDULE_KEY = 'default'
 const PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY = 'default'
@@ -57,6 +59,16 @@ export type PlaylistPublishJob = {
 
 export type PlaylistGenerationReconcileJob = {
   trigger: 'scheduled'
+}
+
+export type PlaylistCurationJob = {
+  curationId: string
+  trigger: 'manual'
+}
+
+export type PlaylistCurationApplyJob = {
+  curationId: string
+  trigger: 'manual'
 }
 
 export function reconciliationCron(intervalMinutes: number): string {
@@ -184,6 +196,20 @@ export async function startJobQueue(
     retryDelay: 30,
     expireInSeconds: 600,
     retentionSeconds: 7 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_CURATION_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 15,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_CURATION_APPLY_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
   })
   return boss
 }

@@ -14,9 +14,14 @@ import {
   LidarrConnectionRequestSchema,
   LidarrConnectionResultSchema,
   LidarrConnectionStatusSchema,
+  CreateCurationRequestSchema,
+  CurationAcceptedSchema,
+  CurationListResponseSchema,
+  CurationResponseSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   LocalAiSettingsUpdateSchema,
+  SetCurationItemDecisionRequestSchema,
   LocalAiStatusSchema,
   LocalAiTestRequestSchema,
   LocalAiTestResultSchema,
@@ -39,10 +44,16 @@ import {
 import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
   clearAiSettings,
+  createCurationForRatingKey,
   createDatabase,
   createPlaylistGeneration,
   DAILY_BRIEF_QUEUE,
   getAiSettings,
+  getCuration,
+  listCurations,
+  PLAYLIST_CURATION_APPLY_QUEUE,
+  PLAYLIST_CURATION_QUEUE,
+  setCurationItemDecision,
   getDashboardOverview,
   getDatabaseStatus,
   getLibrarySyncSources,
@@ -68,7 +79,7 @@ import {
   type AiSettingsRecord,
   type Database,
 } from '@musearr/db'
-import { OllamaLocalAiProvider } from '@musearr/intelligence'
+import { CURATION_ALGORITHM_VERSION, OllamaLocalAiProvider } from '@musearr/intelligence'
 import {
   checkPlexPin,
   createPlexPin,
@@ -122,6 +133,14 @@ function sessionSecret(config: MusearrConfig): string {
 
 function configurationForSetup(config: MusearrConfig): string | null {
   return config.MUSEARR_ENCRYPTION_KEY ?? null
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/** Returns `params.id` when it is a well-formed UUID, otherwise null. */
+function uuidParam(params: unknown): string | null {
+  const id = (params as { id?: unknown })?.id
+  return typeof id === 'string' && UUID_RE.test(id) ? id : null
 }
 
 /**
@@ -862,6 +881,159 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 404, 'PLAYLIST_NOT_FOUND', 'No generated playlist matched this request.')
     }
     return reply.send(PlaylistGenerationResponseSchema.parse({ generation }))
+  })
+
+  app.post('/api/v1/playlists/curations', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to curate a playlist.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    const parsed = CreateCurationRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a playlist to curate.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+
+    const created = await createCurationForRatingKey(database, {
+      userId: request.user.sub,
+      plexPlaylistRatingKey: parsed.data.plexPlaylistRatingKey,
+      algorithmVersion: CURATION_ALGORITHM_VERSION,
+      useAi: parsed.data.useAi,
+      requestedLimit: parsed.data.limit,
+    })
+    if (!created) {
+      return sendProblem(
+        reply,
+        404,
+        'PLAYLIST_NOT_FOUND',
+        'That playlist is not in the local mirror yet. Run a playlist sync and try again.',
+      )
+    }
+    await readyJobQueue.send(
+      PLAYLIST_CURATION_QUEUE,
+      { curationId: created.curationId, trigger: 'manual' },
+      { singletonKey: created.curationId },
+    )
+    return reply
+      .code(202)
+      .send(CurationAcceptedSchema.parse({ curationId: created.curationId, status: 'proposed' }))
+  })
+
+  app.get('/api/v1/playlists/curations', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view playlist curations.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    return reply.send(
+      CurationListResponseSchema.parse({ curations: await listCurations(database, request.user.sub) }),
+    )
+  })
+
+  app.get('/api/v1/playlists/curations/:id', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view playlist curations.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    const id = uuidParam(request.params)
+    if (!id) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid curation.')
+    }
+    const curation = await getCuration(database, request.user.sub, id)
+    if (!curation) {
+      return sendProblem(reply, 404, 'CURATION_NOT_FOUND', 'No curation matched this request.')
+    }
+    return reply.send(CurationResponseSchema.parse({ curation }))
+  })
+
+  app.post('/api/v1/playlists/curations/:id/items/:itemId', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to review a curation.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    const params = request.params as { id?: unknown; itemId?: unknown }
+    const id = uuidParam({ id: params.id })
+    const itemId = uuidParam({ id: params.itemId })
+    if (!id || !itemId) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid curation item.')
+    }
+    const parsed = SetCurationItemDecisionRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose accept, reject, or suggested.')
+    }
+    const updated = await setCurationItemDecision(
+      database,
+      request.user.sub,
+      id,
+      itemId,
+      parsed.data.decision,
+    )
+    if (!updated) {
+      return sendProblem(
+        reply,
+        404,
+        'CURATION_ITEM_NOT_FOUND',
+        'That curation item is not open for review.',
+      )
+    }
+    const curation = await getCuration(database, request.user.sub, id)
+    if (!curation) {
+      return sendProblem(reply, 404, 'CURATION_NOT_FOUND', 'No curation matched this request.')
+    }
+    return reply.send(CurationResponseSchema.parse({ curation }))
+  })
+
+  app.post('/api/v1/playlists/curations/:id/apply', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to apply a curation.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    const id = uuidParam(request.params)
+    if (!id) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid curation.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+    const curation = await getCuration(database, request.user.sub, id)
+    if (!curation) {
+      return sendProblem(reply, 404, 'CURATION_NOT_FOUND', 'No curation matched this request.')
+    }
+    if (!['proposed', 'approved', 'failed', 'partially_applied'].includes(curation.status)) {
+      return sendProblem(reply, 409, 'CURATION_NOT_APPLICABLE', 'This curation cannot be applied in its current state.')
+    }
+    if (curation.counts.accepted === 0) {
+      return sendProblem(reply, 409, 'CURATION_NOTHING_ACCEPTED', 'Accept at least one track before applying.')
+    }
+    await readyJobQueue.send(
+      PLAYLIST_CURATION_APPLY_QUEUE,
+      { curationId: id, trigger: 'manual' },
+      { singletonKey: id },
+    )
+    return reply.code(202).send(CurationAcceptedSchema.parse({ curationId: id, status: 'applying' }))
   })
 
   app.post('/api/v1/settings/lidarr/test', async (request, reply) => {

@@ -53,3 +53,17 @@ export {
   type PhrasedSummary,
   type SummaryPhrasing,
 } from './ai/reason-phrasing.js'
+export {
+  CURATION_ALGORITHM_VERSION,
+  proposeCurationAdditions,
+  type CurationLibraryTrack,
+  type CurationProposal,
+  type CurationProposalItem,
+  type CurationReason,
+  type CurationReasonCode,
+} from './curation.js'
+export {
+  rerankCurationWithAi,
+  type CurationRerankInput,
+  type CurationRerankResult,
+} from './ai/curation-rerank.js'

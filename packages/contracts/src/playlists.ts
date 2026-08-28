@@ -105,3 +105,91 @@ export type PlaylistGenerationSummary = z.infer<typeof PlaylistGenerationSummary
 export type PlaylistGenerationResponse = z.infer<typeof PlaylistGenerationResponseSchema>
 export type PlaylistGenerationListResponse = z.infer<typeof PlaylistGenerationListResponseSchema>
 export type PlaylistGenerationAccepted = z.infer<typeof PlaylistGenerationAcceptedSchema>
+
+/**
+ * A playlist curation is a review-gated proposal to ADD library tracks to an
+ * existing playlist. It never removes or reorders. Each item starts `suggested`;
+ * the owner marks items `accepted` or `rejected`, then applies the accepted set
+ * to Plex.
+ */
+export const PlaylistCurationStatusSchema = z.enum([
+  'proposed',
+  'approved',
+  'applying',
+  'applied',
+  'partially_applied',
+  'failed',
+  'dismissed',
+])
+
+export const CurationItemDecisionSchema = z.enum(['suggested', 'accepted', 'rejected'])
+
+export const CreateCurationRequestSchema = z.object({
+  plexPlaylistRatingKey: z.string().trim().min(1).max(128),
+  useAi: z.boolean().default(false),
+  limit: z.number().int().min(1).max(100).default(20),
+})
+
+export const SetCurationItemDecisionRequestSchema = z.object({
+  decision: CurationItemDecisionSchema,
+})
+
+export const CurationItemSchema = z.object({
+  id: z.string().uuid(),
+  position: z.number().int().nonnegative(),
+  trackId: z.string().uuid(),
+  plexRatingKey: z.string(),
+  artistName: z.string(),
+  trackTitle: z.string(),
+  score: z.number().min(0).max(1),
+  reasons: z.array(PlaylistGenerationReasonSchema),
+  decision: CurationItemDecisionSchema,
+  appliedAt: z.string().datetime().nullable(),
+})
+
+export const CurationCountsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  suggested: z.number().int().nonnegative(),
+  applied: z.number().int().nonnegative(),
+})
+
+export const CurationSchema = z.object({
+  id: z.string().uuid(),
+  playlistName: z.string(),
+  plexPlaylistRatingKey: z.string(),
+  playlistManagedByMusearr: z.boolean(),
+  status: PlaylistCurationStatusSchema,
+  useAi: z.boolean(),
+  aiUsed: z.boolean(),
+  algorithmVersion: z.string(),
+  requestedLimit: z.number().int().positive(),
+  basisTrackCount: z.number().int().nonnegative(),
+  counts: CurationCountsSchema,
+  errorSummary: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  appliedAt: z.string().datetime().nullable(),
+  items: z.array(CurationItemSchema),
+})
+
+export const CurationSummarySchema = CurationSchema.omit({ items: true })
+
+export const CurationResponseSchema = z.object({ curation: CurationSchema })
+export const CurationListResponseSchema = z.object({ curations: z.array(CurationSummarySchema) })
+export const CurationAcceptedSchema = z.object({
+  curationId: z.string().uuid(),
+  status: PlaylistCurationStatusSchema,
+})
+
+export type PlaylistCurationStatus = z.infer<typeof PlaylistCurationStatusSchema>
+export type CurationItemDecision = z.infer<typeof CurationItemDecisionSchema>
+export type CreateCurationRequest = z.infer<typeof CreateCurationRequestSchema>
+export type SetCurationItemDecisionRequest = z.infer<typeof SetCurationItemDecisionRequestSchema>
+export type CurationItem = z.infer<typeof CurationItemSchema>
+export type Curation = z.infer<typeof CurationSchema>
+export type CurationSummary = z.infer<typeof CurationSummarySchema>
+export type CurationResponse = z.infer<typeof CurationResponseSchema>
+export type CurationListResponse = z.infer<typeof CurationListResponseSchema>
+export type CurationAccepted = z.infer<typeof CurationAcceptedSchema>
