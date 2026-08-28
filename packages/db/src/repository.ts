@@ -502,7 +502,10 @@ export async function rebuildListeningRollups(database: Database, userId: string
       FROM listening_events event
       WHERE event.user_id = ${userId}
         AND event.event_type = 'play_count_delta'
-      GROUP BY event.user_id, event.track_id, (event.occurred_at AT TIME ZONE ${timezone})::date
+      -- Group by the 3rd select item (the timezone-local day). Using the ordinal
+      -- keeps the timezone value bound once; interpolating it again here would
+      -- make the driver send a second parameter that Postgres cannot match.
+      GROUP BY event.user_id, event.track_id, 3
     `
 
     await transaction`
@@ -527,7 +530,8 @@ export async function rebuildListeningRollups(database: Database, userId: string
       JOIN artists artist ON artist.id = album.artist_id
       WHERE event.user_id = ${userId}
         AND event.event_type = 'play_count_delta'
-      GROUP BY event.user_id, artist.id, (event.occurred_at AT TIME ZONE ${timezone})::date
+      -- 3rd select item (timezone-local day); see the note on the track rollup.
+      GROUP BY event.user_id, artist.id, 3
     `
   })
 }
