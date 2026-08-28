@@ -534,3 +534,107 @@ export const playlistPublications = pgTable(
   },
   (table) => [index('playlist_publications_generation_idx').on(table.generationId, table.createdAt)],
 )
+
+export const playlistCurationStatus = pgEnum('playlist_curation_status', [
+  'proposed',
+  'approved',
+  'applying',
+  'applied',
+  'partially_applied',
+  'failed',
+  'dismissed',
+])
+
+export const aiSettings = pgTable(
+  'ai_settings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    enabled: boolean('enabled').notNull().default(false),
+    provider: text('provider').notNull().default('ollama'),
+    baseUrl: text('base_url'),
+    model: text('model'),
+    keepAliveSeconds: integer('keep_alive_seconds'),
+    autoStart: boolean('auto_start').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('ai_settings_singleton').on(sql`(true)`)],
+)
+
+export const playlistCurations = pgTable(
+  'playlist_curations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    playlistId: uuid('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
+    plexServerId: uuid('plex_server_id').references(() => plexServers.id, { onDelete: 'set null' }),
+    plexPlaylistRatingKey: text('plex_playlist_rating_key').notNull(),
+    playlistName: text('playlist_name').notNull(),
+    playlistManagedByMusearr: boolean('playlist_managed_by_musearr').notNull().default(false),
+    status: playlistCurationStatus('status').notNull().default('proposed'),
+    useAi: boolean('use_ai').notNull().default(false),
+    aiUsed: boolean('ai_used').notNull().default(false),
+    algorithmVersion: text('algorithm_version').notNull(),
+    requestedLimit: integer('requested_limit').notNull(),
+    basisTrackCount: integer('basis_track_count').notNull().default(0),
+    errorSummary: text('error_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+  },
+  (table) => [index('playlist_curations_user_created_idx').on(table.userId, table.createdAt)],
+)
+
+export const playlistCurationItems = pgTable(
+  'playlist_curation_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    curationId: uuid('curation_id')
+      .notNull()
+      .references(() => playlistCurations.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    trackId: uuid('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    plexRatingKey: text('plex_rating_key').notNull(),
+    artistName: text('artist_name').notNull(),
+    trackTitle: text('track_title').notNull(),
+    score: numeric('score', { precision: 6, scale: 4 }).notNull().default('0'),
+    reasonCodes: jsonb('reason_codes').notNull().default([]),
+    decision: text('decision').notNull().default('suggested'),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlist_curation_items_curation_position').on(table.curationId, table.position),
+    uniqueIndex('playlist_curation_items_curation_track').on(table.curationId, table.trackId),
+    index('playlist_curation_items_curation_idx').on(table.curationId),
+  ],
+)
+
+export const playlistIdeas = pgTable(
+  'playlist_ideas',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    rationale: text('rationale').notNull(),
+    kind: text('kind').notNull(),
+    filter: jsonb('filter').notNull(),
+    libraryTrackCount: integer('library_track_count').notNull().default(0),
+    coveredTrackCount: integer('covered_track_count').notNull().default(0),
+    coverageRatio: numeric('coverage_ratio', { precision: 6, scale: 4 }).notNull().default('0'),
+    score: numeric('score', { precision: 6, scale: 4 }).notNull().default('0'),
+    source: text('source').notNull().default('deterministic'),
+    algorithmVersion: text('algorithm_version').notNull(),
+    status: text('status').notNull().default('proposed'),
+    generationId: uuid('generation_id').references(() => playlistGenerations.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('playlist_ideas_user_status_idx').on(table.userId, table.status, table.score)],
+)
