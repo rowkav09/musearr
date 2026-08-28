@@ -51,7 +51,7 @@ export async function getAllPlaylistedTrackIds(
     FROM playlist_items item
     JOIN sizes ON sizes.playlist_id = item.playlist_id
     WHERE item.track_id IS NOT NULL
-      AND sizes.n::numeric <= ${maxShare} * (SELECT n FROM total)
+      AND sizes.n::numeric <= ${maxShare}::numeric * (SELECT n FROM total)
   `
   return rows.map((row) => row.track_id)
 }
