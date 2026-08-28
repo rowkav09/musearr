@@ -1278,7 +1278,11 @@ export type IncompleteAlbum = {
   expectedTracks: number
 }
 
-/** Albums whose highest track number exceeds how many tracks are mirrored. */
+/**
+ * Albums that look genuinely partial: several tracks present, gaps in the
+ * numbering, and at least 40% of the tracklist there. That excludes the common
+ * false positive — a single track from a compilation whose track number is 25.
+ */
 export async function getIncompleteAlbums(
   database: Database,
   limit = 40,
@@ -1292,10 +1296,11 @@ export async function getIncompleteAlbums(
     FROM albums album
     JOIN artists artist ON artist.id = album.artist_id
     JOIN tracks t ON t.album_id = album.id
-    WHERE t.track_number IS NOT NULL AND t.track_number BETWEEN 1 AND 60
+    WHERE t.track_number IS NOT NULL AND t.track_number BETWEEN 1 AND 40
     GROUP BY album.id, album.title, artist.name
-    HAVING MAX(t.track_number) > COUNT(t.id) + 0
-       AND MAX(t.track_number) - COUNT(t.id) <= 30
+    HAVING COUNT(t.id) >= 3
+       AND MAX(t.track_number) > COUNT(t.id)
+       AND COUNT(t.id)::float / NULLIF(MAX(t.track_number), 0) >= 0.4
     ORDER BY (MAX(t.track_number) - COUNT(t.id)) DESC, artist.name ASC
     LIMIT ${Math.min(100, Math.max(1, limit))}
   `
