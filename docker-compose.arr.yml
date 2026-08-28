@@ -19,6 +19,26 @@ services:
       - "${MUSEARR_ARR_PORT:-8600}:8080"
     volumes:
       - musearr_arr_data:/config
+    depends_on:
+      - ollama
+
+  # Optional local model runtime for Musearr's AI features. Musearr only ever
+  # talks to this container (never a hosted LLM). Point .env.arr at it with:
+  #   MUSEARR_LOCAL_AI_ENABLED=true
+  #   MUSEARR_LOCAL_AI_PROVIDER=ollama
+  #   MUSEARR_LOCAL_AI_BASE_URL=http://ollama:11434
+  #   MUSEARR_LOCAL_AI_MODEL=qwen2.5:3b
+  # Then pull a model:  docker compose -p musearr-arr -f docker-compose.arr.yml exec ollama ollama pull qwen2.5:3b
+  ollama:
+    image: ollama/ollama:latest
+    container_name: musearr-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment to reach the model server from the host (e.g. `ollama` CLI):
+    # ports:
+    #   - "11434:11434"
 
 volumes:
   musearr_arr_data:
+  ollama_data:
