@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Playlist curation: Musearr studies the tracks already on a Plex playlist and
+  proposes library tracks to ADD (never removes or reorders). Deterministic
+  scorer (`proposeCurationAdditions`) with an optional one-call local-AI re-rank
+  of the shortlist. `playlist.curate` / `playlist.curate.apply` worker queues,
+  `POST/GET /api/v1/playlists/curations`, per-item accept/reject, and an apply
+  step that adds the accepted tracks to Plex. A `/playlists` page in the
+  dashboard drives the whole review flow. `GET /api/v1/playlists` lists the
+  mirrored playlists.
 - Release policy and public roadmap documentation.
 - Playlist generation from a seed track: a deterministic planner (`@musearr/intelligence`),
   `playlist_generations` schema, worker jobs, and `POST /api/v1/playlists/generate`.

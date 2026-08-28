@@ -1,15 +1,15 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { LocalAiSettings } from '../_components/local-ai-settings'
 import { MusearrMark } from '../_components/musearr-mark'
+import { PlaylistCuration } from '../_components/playlist-curation'
 
 export const metadata: Metadata = {
-  title: 'Settings',
+  title: 'Playlists',
 }
 
 const navigation = ['Home', 'Playlists', 'Discover', 'Library', 'Insights', 'Metadata']
 
-export default function SettingsPage() {
+export default function PlaylistsPage() {
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -19,8 +19,8 @@ export default function SettingsPage() {
         <nav aria-label="Primary navigation" className="sidebar-nav">
           {navigation.map((item, index) => (
             <Link
-              className="nav-item"
-              href={item === 'Home' ? '/' : item === 'Playlists' ? '/playlists' : '/'}
+              className={item === 'Playlists' ? 'nav-item nav-item--active' : 'nav-item'}
+              href={item === 'Playlists' ? '/playlists' : '/'}
               key={item}
             >
               <span className={`nav-glyph nav-glyph--${index}`} aria-hidden="true" />
@@ -30,7 +30,7 @@ export default function SettingsPage() {
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-bottom__label">YOUR SPACE</div>
-          <Link className="nav-item nav-item--active" href="/settings">
+          <Link className="nav-item" href="/settings">
             <span className="nav-glyph nav-glyph--settings" aria-hidden="true" />
             Settings
           </Link>
@@ -49,27 +49,27 @@ export default function SettingsPage() {
         </header>
 
         <div className="dashboard-content">
-          <section className="welcome-section" aria-labelledby="settings-title">
+          <section className="welcome-section" aria-labelledby="playlists-title">
             <div>
-              <p className="eyebrow">SETTINGS</p>
-              <h1 id="settings-title">How Musearr thinks.</h1>
+              <p className="eyebrow">PLAYLISTS</p>
+              <h1 id="playlists-title">Grow a playlist you already love.</h1>
               <p className="welcome-copy">
-                Musearr is deterministic by default. Local AI is an optional layer that talks only to a
-                model runtime you host. Configure it here; the environment provides the defaults until
-                you save an override.
+                Musearr studies the tracks already on a Plex playlist and proposes more from your
+                library that fit. Nothing is added until you review and approve it, and it never
+                removes or reorders anything.
               </p>
             </div>
           </section>
 
-          <section className="section-block" aria-labelledby="local-ai-title">
+          <section className="section-block" aria-labelledby="curation-title">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">LOCAL AI</p>
-                <h2 id="local-ai-title">Optional, self-hosted, off by default</h2>
+                <p className="eyebrow">CURATION</p>
+                <h2 id="curation-title">Suggest additions, then apply the ones you want</h2>
               </div>
-              <span className="quiet-label">Overrides MUSEARR_LOCAL_AI_* when saved.</span>
+              <span className="quiet-label">Deterministic by default; local AI re-rank optional.</span>
             </div>
-            <LocalAiSettings />
+            <PlaylistCuration />
           </section>
         </div>
       </section>

@@ -18,6 +18,7 @@ import {
   CurationAcceptedSchema,
   CurationListResponseSchema,
   CurationResponseSchema,
+  MirroredPlaylistListResponseSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
   LocalAiSettingsUpdateSchema,
@@ -50,6 +51,7 @@ import {
   DAILY_BRIEF_QUEUE,
   getAiSettings,
   getCuration,
+  listCuratablePlaylists,
   listCurations,
   PLAYLIST_CURATION_APPLY_QUEUE,
   PLAYLIST_CURATION_QUEUE,
@@ -881,6 +883,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 404, 'PLAYLIST_NOT_FOUND', 'No generated playlist matched this request.')
     }
     return reply.send(PlaylistGenerationResponseSchema.parse({ generation }))
+  })
+
+  app.get('/api/v1/playlists', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your playlists.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can curate playlists.')
+    }
+    return reply.send(
+      MirroredPlaylistListResponseSchema.parse({ playlists: await listCuratablePlaylists(database) }),
+    )
   })
 
   app.post('/api/v1/playlists/curations', async (request, reply) => {

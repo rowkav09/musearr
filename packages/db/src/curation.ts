@@ -115,6 +115,33 @@ export async function getPlaylistByRatingKey(
   }
 }
 
+export type CuratablePlaylist = {
+  plexRatingKey: string
+  name: string
+  managedByMusearr: boolean
+  trackCount: number
+}
+
+/** Mirrored playlists the owner could curate, most recently synced first. */
+export async function listCuratablePlaylists(database: Database): Promise<CuratablePlaylist[]> {
+  const rows = await database<
+    Array<{ plex_rating_key: string; name: string; managed_by_musearr: boolean; track_count: string }>
+  >`
+    SELECT p.plex_rating_key, p.name, p.managed_by_musearr,
+           COUNT(item.track_id)::text AS track_count
+    FROM playlists p
+    LEFT JOIN playlist_items item ON item.playlist_id = p.id AND item.track_id IS NOT NULL
+    GROUP BY p.id, p.plex_rating_key, p.name, p.managed_by_musearr, p.last_synced_at
+    ORDER BY p.last_synced_at DESC NULLS LAST, p.name ASC
+  `
+  return rows.map((row) => ({
+    plexRatingKey: row.plex_rating_key,
+    name: row.name,
+    managedByMusearr: row.managed_by_musearr,
+    trackCount: Number(row.track_count) || 0,
+  }))
+}
+
 /** Track ids currently mirrored on a playlist. Unresolved items are skipped. */
 export async function getPlaylistTrackIds(database: Database, playlistId: string): Promise<string[]> {
   const rows = await database<Array<{ track_id: string }>>`

@@ -65,6 +65,7 @@ export {
   getCurationJobContext,
   getPlaylistByRatingKey,
   getPlaylistTrackIds,
+  listCuratablePlaylists,
   listCurations,
   markCurationItemsApplied,
   replaceCurationItems,
@@ -79,6 +80,7 @@ export {
   type CurationStatus,
   type CurationSummaryRecord,
   type CurationTargetPlaylist,
+  type CuratablePlaylist,
 } from './curation.js'
 export type {
   Database,

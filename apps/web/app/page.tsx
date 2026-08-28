@@ -11,12 +11,19 @@ export default function HomePage() {
       <aside className="sidebar">
         <MusearrMark />
         <nav aria-label="Primary navigation" className="sidebar-nav">
-          {navigation.map((item, index) => (
-            <a className={index === 0 ? 'nav-item nav-item--active' : 'nav-item'} href="#" key={item}>
-              <span className={`nav-glyph nav-glyph--${index}`} aria-hidden="true" />
-              {item}
-            </a>
-          ))}
+          {navigation.map((item, index) => {
+            const href = item === 'Home' ? '/' : item === 'Playlists' ? '/playlists' : '#'
+            return (
+              <Link
+                className={index === 0 ? 'nav-item nav-item--active' : 'nav-item'}
+                href={href}
+                key={item}
+              >
+                <span className={`nav-glyph nav-glyph--${index}`} aria-hidden="true" />
+                {item}
+              </Link>
+            )
+          })}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-bottom__label">YOUR SPACE</div>

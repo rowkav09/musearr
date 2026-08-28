@@ -193,3 +193,17 @@ export type CurationSummary = z.infer<typeof CurationSummarySchema>
 export type CurationResponse = z.infer<typeof CurationResponseSchema>
 export type CurationListResponse = z.infer<typeof CurationListResponseSchema>
 export type CurationAccepted = z.infer<typeof CurationAcceptedSchema>
+
+export const MirroredPlaylistSchema = z.object({
+  plexRatingKey: z.string(),
+  name: z.string(),
+  managedByMusearr: z.boolean(),
+  trackCount: z.number().int().nonnegative(),
+})
+
+export const MirroredPlaylistListResponseSchema = z.object({
+  playlists: z.array(MirroredPlaylistSchema),
+})
+
+export type MirroredPlaylist = z.infer<typeof MirroredPlaylistSchema>
+export type MirroredPlaylistListResponse = z.infer<typeof MirroredPlaylistListResponseSchema>
