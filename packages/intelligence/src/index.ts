@@ -76,3 +76,4 @@ export {
   type PlaylistIdea,
 } from './playlist-ideas.js'
 export { namePlaylistIdeas } from './ai/idea-naming.js'
+export { promptToPlaylistFilter } from './ai/prompt-to-filter.js'

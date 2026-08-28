@@ -16,6 +16,7 @@ import {
   PLAYLIST_CURATION_APPLY_QUEUE,
   PLAYLIST_IDEAS_SCAN_QUEUE,
   PLAYLIST_IDEA_CREATE_QUEUE,
+  PLAYLIST_BUILD_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   scheduleLibraryReconciliation,
@@ -34,6 +35,7 @@ import {
   type PlaylistCurationApplyJob,
   type PlaylistIdeasScanJob,
   type PlaylistIdeaCreateJob,
+  type PlaylistBuildJob,
   type RecommendationRunJob,
   type ReconciliationJob,
 } from '@musearr/db'
@@ -48,6 +50,7 @@ import { reconcilePlaylistGenerations } from './jobs/playlist-reconcile.js'
 import { proposeCuration } from './jobs/playlist-curation.js'
 import { applyCuration } from './jobs/playlist-curation-apply.js'
 import { scanPlaylistIdeas, createPlaylistFromIdea } from './jobs/playlist-ideas.js'
+import { buildPlaylistFromFilter } from './jobs/playlist-build.js'
 import { publishPlaylistToPlex } from './jobs/playlist-publish.js'
 import { sanitisePlaylistFailure } from './jobs/playlist-failures.js'
 
@@ -283,6 +286,29 @@ async function start(): Promise<void> {
       for (const job of jobs) {
         const result = await createPlaylistFromIdea(database, config, job.data.userId, job.data.ideaId)
         console.info({ jobId: job.id, ...result }, 'Playlist created from idea')
+      }
+    },
+  )
+
+  await jobQueue.work<PlaylistBuildJob>(
+    PLAYLIST_BUILD_QUEUE,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        const result = await buildPlaylistFromFilter(database, config, {
+          userId: job.data.userId,
+          name: job.data.name,
+          size: job.data.size,
+          ...(job.data.filter
+            ? {
+                filter: job.data.filter as NonNullable<
+                  Parameters<typeof buildPlaylistFromFilter>[2]['filter']
+                >,
+              }
+            : {}),
+          ...(job.data.prompt ? { prompt: job.data.prompt } : {}),
+        })
+        console.info({ jobId: job.id, ...result }, 'Playlist built from filter')
       }
     },
   )

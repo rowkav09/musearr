@@ -6,6 +6,7 @@ const NAV: Array<{ label: string; href: string }> = [
   { label: 'Home', href: '/' },
   { label: 'Playlists', href: '/playlists' },
   { label: 'Discover', href: '/discover' },
+  { label: 'Albums', href: '/albums' },
   { label: 'Insights', href: '/insights' },
   { label: 'Metadata', href: '/metadata' },
 ]

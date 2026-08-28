@@ -1270,6 +1270,90 @@ export async function searchLibraryTracks(
   }))
 }
 
+export async function listGenres(database: Database): Promise<Array<{ name: string; trackCount: number }>> {
+  const rows = await database<Array<{ name: string; track_count: string | number }>>`
+    SELECT genre.display_name AS name, COUNT(DISTINCT item.entity_id)::int AS track_count
+    FROM genres genre
+    JOIN item_genres item ON item.genre_id = genre.id AND item.entity_type = 'track'
+    GROUP BY genre.id, genre.display_name
+    HAVING COUNT(DISTINCT item.entity_id) > 0
+    ORDER BY track_count DESC, name ASC
+  `
+  return rows.map((row) => ({ name: row.name, trackCount: Number(row.track_count) }))
+}
+
+export type AlbumCard = {
+  id: string
+  title: string
+  artistName: string
+  year: number | null
+  trackCount: number
+  totalPlays: number
+  avgRating: number | null
+  addedAt: string | null
+}
+
+/** Albums for the browse view. `sort`: 'plays' | 'recent' | 'title'. */
+export async function listAlbums(
+  database: Database,
+  userId: string,
+  options: { sort?: 'plays' | 'recent' | 'title'; search?: string; limit?: number } = {},
+): Promise<AlbumCard[]> {
+  const sort = options.sort ?? 'plays'
+  const limit = Math.min(120, Math.max(1, options.limit ?? 60))
+  const search = options.search?.trim() ?? ''
+  const term = search ? `%${search.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null
+  const orderBy =
+    sort === 'recent'
+      ? database`album.added_at DESC NULLS LAST, album.title ASC`
+      : sort === 'title'
+        ? database`album.title ASC`
+        : database`total_plays DESC, album.title ASC`
+
+  const rows = await database<
+    Array<{
+      id: string
+      title: string
+      artist_name: string
+      year: number | null
+      track_count: string | number
+      total_plays: string | number
+      avg_rating: string | number | null
+      added_at: Date | string | null
+    }>
+  >`
+    SELECT
+      album.id,
+      album.title,
+      artist.name AS artist_name,
+      album.year,
+      album.added_at,
+      COUNT(DISTINCT t.id)::int AS track_count,
+      COALESCE(SUM(state.play_count), 0)::bigint AS total_plays,
+      AVG(state.rating) FILTER (WHERE state.rating IS NOT NULL) AS avg_rating
+    FROM albums album
+    JOIN artists artist ON artist.id = album.artist_id
+    JOIN tracks t ON t.album_id = album.id
+    LEFT JOIN user_item_state state
+      ON state.entity_type = 'track' AND state.entity_id = t.id AND state.user_id = ${userId}
+    ${term ? database`WHERE album.title ILIKE ${term} OR artist.name ILIKE ${term}` : database``}
+    GROUP BY album.id, album.title, artist.name, album.year, album.added_at
+    ORDER BY ${orderBy}
+    LIMIT ${limit}
+  `
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    year: row.year,
+    trackCount: Number(row.track_count),
+    totalPlays: Number(row.total_plays),
+    avgRating: row.avg_rating === null || row.avg_rating === undefined ? null : Number(row.avg_rating),
+    addedAt: serialiseTimestamp(row.added_at),
+  }))
+}
+
 export type LibraryHealth = {
   totals: { artists: number; albums: number; tracks: number; playlists: number; genres: number }
   gaps: {

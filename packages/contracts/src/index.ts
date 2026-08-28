@@ -171,6 +171,49 @@ export const LibraryTrackSearchResponseSchema = z.object({
 export type LibraryTrackHit = z.infer<typeof LibraryTrackHitSchema>
 export type LibraryTrackSearchResponse = z.infer<typeof LibraryTrackSearchResponseSchema>
 
+export const AlbumListQuerySchema = z.object({
+  sort: z.enum(['plays', 'recent', 'title']).default('plays'),
+  q: z.string().trim().max(120).optional(),
+})
+
+export const AlbumCardSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  artistName: z.string(),
+  year: z.number().int().nullable(),
+  trackCount: z.number().int().nonnegative(),
+  totalPlays: z.number().int().nonnegative(),
+  avgRating: z.number().nullable(),
+  addedAt: z.string().datetime().nullable(),
+})
+
+export const AlbumListResponseSchema = z.object({ albums: z.array(AlbumCardSchema) })
+
+export type AlbumCard = z.infer<typeof AlbumCardSchema>
+export type AlbumListResponse = z.infer<typeof AlbumListResponseSchema>
+
+export const GenreListResponseSchema = z.object({
+  genres: z.array(z.object({ name: z.string(), trackCount: z.number().int().nonnegative() })),
+})
+
+export const BuildFromFilterRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    genre: z.string().trim().min(1).max(120).optional(),
+    decade: z.number().int().min(1900).max(2100).optional(),
+    prompt: z.string().trim().min(3).max(300).optional(),
+    size: z.number().int().min(1).max(200).default(30),
+  })
+  .refine(
+    (value) => [value.genre, value.decade, value.prompt].filter((v) => v !== undefined).length === 1,
+    { message: 'Provide exactly one of genre, decade, or prompt.' },
+  )
+
+export const PlaylistBuildAcceptedSchema = z.object({ status: z.literal('building') })
+
+export type GenreListResponse = z.infer<typeof GenreListResponseSchema>
+export type BuildFromFilterRequest = z.infer<typeof BuildFromFilterRequestSchema>
+
 export const DashboardOverviewSchema = z.object({
   library: z.object({
     artistCount: z.number().int().nonnegative(),

@@ -238,3 +238,16 @@ button { cursor: pointer; }
 .seed-search input { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; outline: none; background: white; font-size: 14px; font-weight: 500; }
 .seed-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(223,99,83,.13); }
 .track-hits__note { padding: 10px 12px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.album-controls { display: flex; flex-wrap: wrap; gap: 10px; }
+.album-controls input { flex: 1 1 240px; min-height: 42px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; font-size: 14px; }
+.album-controls select { min-height: 42px; padding: 0 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; font-size: 13px; font-weight: 600; }
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.album-card { border: 1px solid var(--line); border-radius: 13px; background: var(--paper); overflow: hidden; }
+.album-card__cover { height: 120px; display: grid; place-items: center; background: linear-gradient(135deg, #d88475, #796999); color: rgba(255,255,255,.9); font-family: Georgia, serif; font-size: 44px; }
+.album-card__body { display: grid; gap: 3px; padding: 12px 13px 14px; }
+.album-card__body strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-card__body span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-card__body small { margin-top: 4px; color: #978d91; font-size: 11px; line-height: 1.4; }
+.build-modes { display: flex; gap: 8px; margin-bottom: 4px; }
+.curation-new textarea { width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid #dcd3ca; border-radius: 8px; background: white; font: inherit; font-size: 14px; font-weight: 500; resize: vertical; }
+.curation-new textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(223,99,83,.13); outline: none; }

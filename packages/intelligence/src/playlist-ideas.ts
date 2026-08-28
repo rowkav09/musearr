@@ -27,6 +27,7 @@ export type IdeaFilter =
   | { kind: 'artist'; artistId: string; artistName: string }
   | { kind: 'unplaylisted_favourites' }
   | { kind: 'unplayed_additions' }
+  | { kind: 'any'; filters: IdeaFilter[] }
 
 export type PlaylistIdea = {
   name: string
@@ -60,6 +61,8 @@ export function ideaMatchesTrack(track: IdeaLibraryTrack, filter: IdeaFilter): b
       return (track.rating ?? 0) >= 8
     case 'unplayed_additions':
       return track.playCount === 0
+    case 'any':
+      return filter.filters.some((inner) => ideaMatchesTrack(track, inner))
   }
 }
 

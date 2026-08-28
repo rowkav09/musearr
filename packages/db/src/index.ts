@@ -13,6 +13,8 @@ export {
   getDatabaseStatus,
   getDashboardOverview,
   getLibraryHealth,
+  listAlbums,
+  listGenres,
   searchLibraryTracks,
   getListeningInsightSummary,
   getDailyBriefDelivery,
@@ -44,6 +46,7 @@ export {
   PLAYLIST_CURATION_APPLY_QUEUE,
   PLAYLIST_IDEAS_SCAN_QUEUE,
   PLAYLIST_IDEA_CREATE_QUEUE,
+  PLAYLIST_BUILD_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   reconciliationCron,
@@ -119,6 +122,7 @@ export type {
   SetupStatusRecord,
   LibraryHealth,
   LibraryTrackHit,
+  AlbumCard,
   SyncFailureClassification,
   SyncProgress,
 } from './repository.js'
@@ -134,6 +138,7 @@ export type {
   PlaylistCurationApplyJob,
   PlaylistIdeasScanJob,
   PlaylistIdeaCreateJob,
+  PlaylistBuildJob,
   RecommendationRunJob,
   ReconciliationJob,
 } from './jobs.js'

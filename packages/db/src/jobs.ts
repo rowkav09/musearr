@@ -13,6 +13,7 @@ export const PLAYLIST_CURATION_QUEUE = 'playlist.curate'
 export const PLAYLIST_CURATION_APPLY_QUEUE = 'playlist.curate.apply'
 export const PLAYLIST_IDEAS_SCAN_QUEUE = 'playlist.ideas.scan'
 export const PLAYLIST_IDEA_CREATE_QUEUE = 'playlist.idea.create'
+export const PLAYLIST_BUILD_QUEUE = 'playlist.build'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
 const DAILY_BRIEF_SCHEDULE_KEY = 'default'
 const PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY = 'default'
@@ -81,6 +82,16 @@ export type PlaylistIdeasScanJob = {
 export type PlaylistIdeaCreateJob = {
   userId: string
   ideaId: string
+  trigger: 'manual'
+}
+
+export type PlaylistBuildJob = {
+  userId: string
+  name: string
+  size: number
+  /** Exactly one of these is set. */
+  filter?: unknown
+  prompt?: string
   trigger: 'manual'
 }
 
@@ -231,6 +242,13 @@ export async function startJobQueue(
     retentionSeconds: 7 * 24 * 60 * 60,
   })
   await boss.createQueue(PLAYLIST_IDEA_CREATE_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_BUILD_QUEUE, {
     retryLimit: 3,
     retryDelay: 30,
     retryBackoff: true,

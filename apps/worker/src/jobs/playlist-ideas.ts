@@ -105,7 +105,7 @@ export async function createPlaylistFromIdea(
 const IDEA_PLAYLIST_TARGET = 40
 const IDEA_PLAYLIST_MAX_PER_ARTIST = 3
 
-type RankableTrack = {
+export type RankableTrack = {
   trackId: string
   plexRatingKey: string
   artistId: string
@@ -114,7 +114,7 @@ type RankableTrack = {
   lastPlayedAt: string | null
 }
 
-function curateIdeaSelection<T extends RankableTrack>(
+export function curateIdeaSelection<T extends RankableTrack>(
   tracks: T[],
   target: number,
   maxPerArtist: number,

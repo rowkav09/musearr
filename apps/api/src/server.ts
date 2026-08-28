@@ -19,7 +19,12 @@ import {
   CurationListResponseSchema,
   CurationResponseSchema,
   MirroredPlaylistListResponseSchema,
+  AlbumListQuerySchema,
+  AlbumListResponseSchema,
+  BuildFromFilterRequestSchema,
+  GenreListResponseSchema,
   LibraryHealthSchema,
+  PlaylistBuildAcceptedSchema,
   LibraryTrackSearchQuerySchema,
   LibraryTrackSearchResponseSchema,
   ListeningInsightQuerySchema,
@@ -70,6 +75,9 @@ import {
   getDashboardOverview,
   getDatabaseStatus,
   getLibraryHealth,
+  listAlbums,
+  listGenres,
+  PLAYLIST_BUILD_QUEUE,
   searchLibraryTracks,
   getLibrarySyncSources,
   getLatestRecommendations,
@@ -818,6 +826,73 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view library metadata.')
     }
     return reply.send(LibraryHealthSchema.parse(await getLibraryHealth(database)))
+  })
+
+  app.get('/api/v1/library/albums', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to browse your albums.')
+    }
+    const parsed = AlbumListQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Choose a valid sort.')
+    }
+    return reply.send(
+      AlbumListResponseSchema.parse({
+        albums: await listAlbums(database, request.user.sub, {
+          sort: parsed.data.sort,
+          ...(parsed.data.q ? { search: parsed.data.q } : {}),
+        }),
+      }),
+    )
+  })
+
+  app.get('/api/v1/library/genres', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view genres.')
+    }
+    return reply.send(GenreListResponseSchema.parse({ genres: await listGenres(database) }))
+  })
+
+  app.post('/api/v1/playlists/from-filter', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to build a playlist.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can build playlists.')
+    }
+    const parsed = BuildFromFilterRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Give a genre, a decade, or a description.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+
+    const { genre, decade, prompt, size } = parsed.data
+    const name =
+      parsed.data.name?.trim() ||
+      (genre ? `${genre}` : decade ? `The ${decade}s` : `“${(prompt ?? '').slice(0, 60)}”`)
+    const payload = genre
+      ? { filter: { kind: 'genre', genre } }
+      : decade
+        ? { filter: { kind: 'decade', decade } }
+        : { prompt: prompt as string }
+
+    await readyJobQueue.send(PLAYLIST_BUILD_QUEUE, {
+      userId: request.user.sub,
+      name,
+      size,
+      ...payload,
+      trigger: 'manual',
+    })
+    return reply.code(202).send(PlaylistBuildAcceptedSchema.parse({ status: 'building' }))
   })
 
   app.get('/api/v1/library/tracks', async (request, reply) => {
