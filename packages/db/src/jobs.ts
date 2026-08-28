@@ -14,6 +14,7 @@ export const PLAYLIST_CURATION_APPLY_QUEUE = 'playlist.curate.apply'
 export const PLAYLIST_IDEAS_SCAN_QUEUE = 'playlist.ideas.scan'
 export const PLAYLIST_IDEA_CREATE_QUEUE = 'playlist.idea.create'
 export const PLAYLIST_BUILD_QUEUE = 'playlist.build'
+export const ALBUM_REQUEST_QUEUE = 'album.request'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
 const DAILY_BRIEF_SCHEDULE_KEY = 'default'
 const PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY = 'default'
@@ -92,6 +93,12 @@ export type PlaylistBuildJob = {
   /** Exactly one of these is set. */
   filter?: unknown
   prompt?: string
+  trigger: 'manual'
+}
+
+export type AlbumRequestJob = {
+  artistName: string
+  albumTitle: string
   trigger: 'manual'
 }
 
@@ -251,6 +258,13 @@ export async function startJobQueue(
   await boss.createQueue(PLAYLIST_BUILD_QUEUE, {
     retryLimit: 3,
     retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(ALBUM_REQUEST_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 60,
     retryBackoff: true,
     expireInSeconds: 600,
     retentionSeconds: 14 * 24 * 60 * 60,

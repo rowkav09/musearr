@@ -21,6 +21,9 @@ import {
   MirroredPlaylistListResponseSchema,
   AlbumListQuerySchema,
   AlbumListResponseSchema,
+  AlbumRequestAcceptedSchema,
+  AlbumRequestSchema,
+  IncompleteAlbumListResponseSchema,
   BuildFromFilterRequestSchema,
   GenreListResponseSchema,
   LibraryHealthSchema,
@@ -74,9 +77,11 @@ import {
   setPlaylistIdeaStatus,
   getDashboardOverview,
   getDatabaseStatus,
+  getIncompleteAlbums,
   getLibraryHealth,
   listAlbums,
   listGenres,
+  ALBUM_REQUEST_QUEUE,
   PLAYLIST_BUILD_QUEUE,
   searchLibraryTracks,
   getLibrarySyncSources,
@@ -846,6 +851,46 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         }),
       }),
     )
+  })
+
+  app.get('/api/v1/albums/incomplete', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view your albums.')
+    }
+    return reply.send(
+      IncompleteAlbumListResponseSchema.parse({ albums: await getIncompleteAlbums(database) }),
+    )
+  })
+
+  app.post('/api/v1/albums/request', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to request an album.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can request albums.')
+    }
+    const parsed = AlbumRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Give an artist and album title.')
+    }
+    const readyJobQueue = jobQueue
+    if (!readyJobQueue) {
+      return sendProblem(reply, 503, 'QUEUE_UNAVAILABLE', 'Musearr is still preparing its local job queue.')
+    }
+    const lidarr = await getLidarrConnectionStatus(database)
+    if (!lidarr.configured) {
+      return sendProblem(reply, 409, 'LIDARR_NOT_CONNECTED', 'Connect Lidarr in Settings first.')
+    }
+    await readyJobQueue.send(ALBUM_REQUEST_QUEUE, {
+      artistName: parsed.data.artistName,
+      albumTitle: parsed.data.albumTitle,
+      trigger: 'manual',
+    })
+    return reply.code(202).send(AlbumRequestAcceptedSchema.parse({ status: 'requested' }))
   })
 
   app.get('/api/v1/library/genres', async (request, reply) => {

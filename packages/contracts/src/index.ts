@@ -189,6 +189,25 @@ export const AlbumCardSchema = z.object({
 
 export const AlbumListResponseSchema = z.object({ albums: z.array(AlbumCardSchema) })
 
+export const IncompleteAlbumSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  artistName: z.string(),
+  haveTracks: z.number().int().nonnegative(),
+  expectedTracks: z.number().int().nonnegative(),
+})
+export const IncompleteAlbumListResponseSchema = z.object({
+  albums: z.array(IncompleteAlbumSchema),
+})
+export const AlbumRequestSchema = z.object({
+  artistName: z.string().trim().min(1).max(300),
+  albumTitle: z.string().trim().min(1).max(300),
+})
+export const AlbumRequestAcceptedSchema = z.object({ status: z.literal('requested') })
+
+export type IncompleteAlbum = z.infer<typeof IncompleteAlbumSchema>
+export type AlbumRequest = z.infer<typeof AlbumRequestSchema>
+
 export type AlbumCard = z.infer<typeof AlbumCardSchema>
 export type AlbumListResponse = z.infer<typeof AlbumListResponseSchema>
 

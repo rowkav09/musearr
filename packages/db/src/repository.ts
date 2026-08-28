@@ -1270,6 +1270,44 @@ export async function searchLibraryTracks(
   }))
 }
 
+export type IncompleteAlbum = {
+  id: string
+  title: string
+  artistName: string
+  haveTracks: number
+  expectedTracks: number
+}
+
+/** Albums whose highest track number exceeds how many tracks are mirrored. */
+export async function getIncompleteAlbums(
+  database: Database,
+  limit = 40,
+): Promise<IncompleteAlbum[]> {
+  const rows = await database<
+    Array<{ id: string; title: string; artist_name: string; have_tracks: number; expected_tracks: number }>
+  >`
+    SELECT album.id, album.title, artist.name AS artist_name,
+           COUNT(t.id)::int AS have_tracks,
+           MAX(t.track_number)::int AS expected_tracks
+    FROM albums album
+    JOIN artists artist ON artist.id = album.artist_id
+    JOIN tracks t ON t.album_id = album.id
+    WHERE t.track_number IS NOT NULL AND t.track_number BETWEEN 1 AND 60
+    GROUP BY album.id, album.title, artist.name
+    HAVING MAX(t.track_number) > COUNT(t.id) + 0
+       AND MAX(t.track_number) - COUNT(t.id) <= 30
+    ORDER BY (MAX(t.track_number) - COUNT(t.id)) DESC, artist.name ASC
+    LIMIT ${Math.min(100, Math.max(1, limit))}
+  `
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    haveTracks: Number(row.have_tracks),
+    expectedTracks: Number(row.expected_tracks),
+  }))
+}
+
 export async function listGenres(database: Database): Promise<Array<{ name: string; trackCount: number }>> {
   const rows = await database<Array<{ name: string; track_count: string | number }>>`
     SELECT genre.display_name AS name, COUNT(DISTINCT item.entity_id)::int AS track_count

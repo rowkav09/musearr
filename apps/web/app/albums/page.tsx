@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { AlbumBrowser } from '../_components/album-browser'
 import { AppShell } from '../_components/app-shell'
+import { IncompleteAlbums } from '../_components/incomplete-albums'
 
 export const metadata: Metadata = { title: 'Albums' }
 
@@ -16,6 +17,17 @@ export default function AlbumsPage() {
             mirrored. Read-only.
           </p>
         </div>
+      </section>
+
+      <section className="section-block" aria-labelledby="complete-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">FILL THE GAPS</p>
+            <h2 id="complete-title">Albums missing tracks</h2>
+          </div>
+          <span className="quiet-label">By track-number gaps. Request the rest in Lidarr.</span>
+        </div>
+        <IncompleteAlbums />
       </section>
 
       <section className="section-block" aria-labelledby="album-list-title">

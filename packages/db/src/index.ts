@@ -13,6 +13,7 @@ export {
   getDatabaseStatus,
   getDashboardOverview,
   getLibraryHealth,
+  getIncompleteAlbums,
   listAlbums,
   listGenres,
   searchLibraryTracks,
@@ -47,6 +48,7 @@ export {
   PLAYLIST_IDEAS_SCAN_QUEUE,
   PLAYLIST_IDEA_CREATE_QUEUE,
   PLAYLIST_BUILD_QUEUE,
+  ALBUM_REQUEST_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   RECONCILIATION_QUEUE,
   reconciliationCron,
@@ -123,6 +125,7 @@ export type {
   LibraryHealth,
   LibraryTrackHit,
   AlbumCard,
+  IncompleteAlbum,
   SyncFailureClassification,
   SyncProgress,
 } from './repository.js'
@@ -139,6 +142,7 @@ export type {
   PlaylistIdeasScanJob,
   PlaylistIdeaCreateJob,
   PlaylistBuildJob,
+  AlbumRequestJob,
   RecommendationRunJob,
   ReconciliationJob,
 } from './jobs.js'
