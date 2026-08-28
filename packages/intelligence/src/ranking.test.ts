@@ -69,14 +69,15 @@ describe('rankRecommendations', () => {
     expect(ranked[0]?.summary).toContain('284 days')
   })
 
-  it('does not place two tracks from the same album ahead of a similarly qualified alternative', () => {
-    const ranked = rankRecommendations(candidates, 'daily_mix', { limit: 3, now })
+  it('anchors the daily mix in tracks tied to artists or genres you play', () => {
+    const ranked = rankRecommendations(candidates, 'daily_mix', { limit: 4, now })
+    const ids = ranked.map((recommendation) => recommendation.trackId)
 
-    expect(ranked.map((recommendation) => recommendation.trackId)).toContain('new-1')
-    expect(ranked.slice(0, 2).map((recommendation) => recommendation.trackId)).not.toEqual([
-      'slowdive-1',
-      'slowdive-2',
-    ])
+    // Every pick connects to the listener's taste; the zero-signal Electronic
+    // track by an unplayed artist is not "random music" filler.
+    expect(ids).not.toContain('new-1')
+    // Album diversity still holds: two Slowdive/Souvlaki tracks are not both first.
+    expect(ids.slice(0, 2)).not.toEqual(['slowdive-1', 'slowdive-2'])
   })
 
   it('explains recently added, unheard tracks with source facts', () => {

@@ -1,4 +1,4 @@
-export const RECOMMENDATION_ALGORITHM_VERSION = '2026-08-05.2'
+export const RECOMMENDATION_ALGORITHM_VERSION = '2026-08-28.1'
 
 export type RecommendationKind =
   | 'daily_mix'
@@ -166,7 +166,12 @@ function scoreCandidate(
       if (candidate.playCount > 5 || matureLibrarySignal === 0) {
         return null
       }
-      score = underplayedSignal * 0.4 + ratingSignal * 0.25 + artistSignal * 0.2 + genreSignal * 0.1 + matureLibrarySignal * 0.05
+      // A gem still has to connect to your taste. A track by an artist you never
+      // play, in a genre you never play, is just noise, not a gem.
+      if (artistSignal < 0.1 && genreSignal < 0.15) {
+        return null
+      }
+      score = underplayedSignal * 0.34 + ratingSignal * 0.24 + artistSignal * 0.26 + genreSignal * 0.14 + matureLibrarySignal * 0.02
       reasons.push({
         code: 'UNDERPLAYED',
         weight: round(underplayedSignal),
@@ -190,16 +195,21 @@ function scoreCandidate(
       break
     }
     case 'daily_mix': {
-      const rediscoverySignal = daysSincePlayed === null ? 0.72 : clamp(daysSincePlayed / 45, 0, 1)
+      const rediscoverySignal = daysSincePlayed === null ? 0.55 : clamp(daysSincePlayed / 45, 0, 1)
       const discoverySignal = candidate.playCount === 0 ? 1 : 0
       const fatigue = daysSincePlayed !== null && daysSincePlayed < 2 ? 0.3 : 0
+      // Anchor the mix in what you actually listen to. An unplayed track with no
+      // tie to an artist or genre you play is the "random music" problem — drop it.
+      if (candidate.playCount === 0 && artistSignal < 0.12 && genreSignal < 0.25) {
+        return null
+      }
       score =
-        ratingSignal * 0.24 +
-        playSignal * 0.2 +
-        artistSignal * 0.24 +
-        genreSignal * 0.14 +
-        rediscoverySignal * 0.18 +
-        discoverySignal * 0.18 -
+        ratingSignal * 0.2 +
+        playSignal * 0.18 +
+        artistSignal * 0.32 +
+        genreSignal * 0.2 +
+        rediscoverySignal * 0.16 +
+        discoverySignal * 0.06 -
         fatigue
       if (candidate.playCount === 0) {
         reasons.push({ code: 'UNHEARD', weight: round(rediscoverySignal), facts: { daysInLibrary: daysSinceAdded ?? 0 } })
