@@ -15,7 +15,12 @@ dependency, and nothing is sent to a third party.
   asks the model for tracks similar to a seed and is used only as a source of
   optional "gap" suggestions for playlist generation. Every failure mode
   (disabled, model error, unparseable output) degrades to an empty list.
-- `GET /api/v1/settings/local-ai` — reports the configured state (owner only).
+- `GET /api/v1/settings/local-ai` — reports the effective state, and whether it
+  came from the environment or a stored override (owner only).
+- `PUT /api/v1/settings/local-ai` — replaces the runtime override (a singleton
+  `ai_settings` row). `DELETE` clears it, reverting to the environment.
+- `POST /api/v1/settings/local-ai/test` — probes a candidate Ollama endpoint
+  (`isReachable`) without saving it; returns only `{ reachable }`.
 
 For playlist generation, local AI runs *after* the deterministic
 MusicBrainz/ListenBrainz source (`docs/PLAYLIST_GENERATION.md`) and only tops up
@@ -35,6 +40,15 @@ the deterministic pipeline is unchanged.
 
 All four must be set (and `ENABLED=true`, `PROVIDER=ollama`) before any model
 call is made.
+
+A stored runtime override (set through `PUT /api/v1/settings/local-ai`) replaces
+these values wholesale — the environment is used only when no override row
+exists. The override also carries `keepAliveSeconds`, mapped straight onto
+Ollama's `keep_alive`: `null` = provider default, `0` = unload after each call,
+`-1` = keep resident, `N` = seconds. There is no environment variable for it.
+
+`autoStart` is persisted for a future capability that would start the local model
+runtime on boot; nothing acts on it yet.
 
 ## Recommended models
 

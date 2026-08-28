@@ -9,6 +9,11 @@ const REQUEST_TIMEOUT_MS = 60_000
 export type OllamaProviderOptions = {
   baseUrl: string
   model: string
+  /**
+   * Ollama's `keep_alive`, in seconds: `0` unloads the model after each call,
+   * `-1` keeps it resident, `N` is seconds. Omitted leaves Ollama's default.
+   */
+  keepAliveSeconds?: number
   /** Injectable for tests. */
   fetchImpl?: typeof fetch
 }
@@ -24,12 +29,19 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
   readonly enabled = true
   readonly model: string
   readonly baseUrl: string
+  private readonly keepAliveSeconds: number | undefined
   private readonly fetchImpl: typeof fetch
 
   constructor(options: OllamaProviderOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
     this.model = options.model
+    this.keepAliveSeconds = options.keepAliveSeconds
     this.fetchImpl = options.fetchImpl ?? fetch
+  }
+
+  /** `keep_alive` is a top-level request field in the Ollama API, not an `options` key. */
+  private get keepAlive(): { keep_alive: number } | Record<string, never> {
+    return this.keepAliveSeconds === undefined ? {} : { keep_alive: this.keepAliveSeconds }
   }
 
   async isReachable(): Promise<boolean> {
@@ -46,6 +58,7 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
       model: this.model,
       prompt: request.prompt,
       ...(request.system === undefined ? {} : { system: request.system }),
+      ...this.keepAlive,
       stream: false,
       options: {
         temperature: request.temperature ?? 0.2,
@@ -62,7 +75,11 @@ export class OllamaLocalAiProvider implements LocalAiProvider {
   async embed(texts: string[]): Promise<number[][]> {
     const vectors: number[][] = []
     for (const text of texts) {
-      const response = await this.request('/api/embeddings', { model: this.model, prompt: text })
+      const response = await this.request('/api/embeddings', {
+        model: this.model,
+        prompt: text,
+        ...this.keepAlive,
+      })
       if (!response.ok) {
         throw new LocalAiUnavailableError(`Ollama returned HTTP ${response.status}.`)
       }

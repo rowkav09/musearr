@@ -48,6 +48,13 @@ export {
   startJobQueue,
 } from './jobs.js'
 export * from './playlist-generation.js'
+export {
+  clearAiSettings,
+  getAiSettings,
+  upsertAiSettings,
+  type AiSettingsRecord,
+  type UpsertAiSettings,
+} from './ai-settings.js'
 export type {
   Database,
   DashboardFavourite,

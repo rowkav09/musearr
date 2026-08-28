@@ -25,6 +25,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Local AI foundation (`@musearr/intelligence/ai`): an off-by-default provider
   interface with a null default and an experimental Ollama adapter. The
   deterministic pipeline is unchanged when it is disabled.
+- Runtime Local AI settings: an owner-managed `ai_settings` singleton that
+  overrides the `MUSEARR_LOCAL_AI_*` environment defaults. `GET/PUT/DELETE
+  /api/v1/settings/local-ai` read, replace, and clear it (the status now reports
+  `source` and `autoStart`), and `POST /api/v1/settings/local-ai/test` probes a
+  candidate Ollama endpoint without persisting it. The playlist-generation worker
+  reads the override before falling back to the environment. `keepAliveSeconds`
+  is passed through to Ollama's `keep_alive`.
 
 ### Changed
 

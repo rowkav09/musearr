@@ -16,6 +16,8 @@ export type LocalAiConfig = {
   provider: 'none' | 'ollama'
   baseUrl?: string | undefined
   model?: string | undefined
+  /** Ollama `keep_alive`, in seconds. `null`/omitted leaves the provider default. */
+  keepAliveSeconds?: number | null | undefined
 }
 
 /**
@@ -29,8 +31,27 @@ export function createLocalAiProvider(config: LocalAiConfig): LocalAiProvider {
   }
 
   if (config.provider === 'ollama') {
-    return new OllamaLocalAiProvider({ baseUrl: config.baseUrl, model: config.model })
+    return new OllamaLocalAiProvider({
+      baseUrl: config.baseUrl,
+      model: config.model,
+      ...(config.keepAliveSeconds === undefined || config.keepAliveSeconds === null
+        ? {}
+        : { keepAliveSeconds: config.keepAliveSeconds }),
+    })
   }
 
   return new NullLocalAiProvider()
+}
+
+/**
+ * The runtime override (a persisted `ai_settings` row) supersedes the
+ * environment wholesale. With no override, the environment values are used
+ * as-is. Either way the result is validated by {@link createLocalAiProvider},
+ * so an incomplete configuration still degrades to the null provider.
+ */
+export function resolveLocalAiConfig(
+  environment: LocalAiConfig,
+  override: LocalAiConfig | null | undefined,
+): LocalAiConfig {
+  return override ?? environment
 }

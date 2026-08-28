@@ -16,7 +16,10 @@ import {
   LidarrConnectionStatusSchema,
   ListeningInsightQuerySchema,
   ListeningInsightSummarySchema,
+  LocalAiSettingsUpdateSchema,
   LocalAiStatusSchema,
+  LocalAiTestRequestSchema,
+  LocalAiTestResultSchema,
   MusicBrainzStatusSchema,
   PlaylistGenerationAcceptedSchema,
   PlaylistGenerationListResponseSchema,
@@ -35,9 +38,11 @@ import {
 } from '@musearr/contracts'
 import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
+  clearAiSettings,
   createDatabase,
   createPlaylistGeneration,
   DAILY_BRIEF_QUEUE,
+  getAiSettings,
   getDashboardOverview,
   getDatabaseStatus,
   getLibrarySyncSources,
@@ -58,9 +63,12 @@ import {
   PLAYLIST_SYNC_QUEUE,
   RECOMMENDATION_RUN_QUEUE,
   startJobQueue,
+  upsertAiSettings,
   upsertLidarrConnection,
+  type AiSettingsRecord,
   type Database,
 } from '@musearr/db'
+import { OllamaLocalAiProvider } from '@musearr/intelligence'
 import {
   checkPlexPin,
   createPlexPin,
@@ -114,6 +122,38 @@ function sessionSecret(config: MusearrConfig): string {
 
 function configurationForSetup(config: MusearrConfig): string | null {
   return config.MUSEARR_ENCRYPTION_KEY ?? null
+}
+
+/**
+ * The effective Local AI status: the persisted override when present, otherwise
+ * the environment. `reachable` is always reported as unknown here; callers probe
+ * it explicitly through the test endpoint.
+ */
+function localAiStatusPayload(config: MusearrConfig, override: AiSettingsRecord | null) {
+  if (override) {
+    return {
+      enabled: override.enabled,
+      // Coerce defensively, matching the worker: the write path is constrained,
+      // but a hand-edited row should not 500 the status endpoint.
+      provider: override.provider === 'ollama' ? 'ollama' : 'none',
+      model: override.model,
+      baseUrl: override.baseUrl,
+      keepAliveSeconds: override.keepAliveSeconds,
+      autoStart: override.autoStart,
+      source: 'database' as const,
+      reachable: null,
+    }
+  }
+  return {
+    enabled: config.MUSEARR_LOCAL_AI_ENABLED,
+    provider: config.MUSEARR_LOCAL_AI_PROVIDER,
+    model: config.MUSEARR_LOCAL_AI_MODEL ?? null,
+    baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL ?? null,
+    keepAliveSeconds: null,
+    autoStart: true,
+    source: 'environment' as const,
+    reachable: null,
+  }
 }
 
 function sessionCookieOptions(request: FastifyReply['request']) {
@@ -918,15 +958,70 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (request.user.role !== 'owner') {
       return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
     }
-    return reply.send(
-      LocalAiStatusSchema.parse({
-        enabled: config.MUSEARR_LOCAL_AI_ENABLED,
-        provider: config.MUSEARR_LOCAL_AI_PROVIDER,
-        model: config.MUSEARR_LOCAL_AI_MODEL ?? null,
-        baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL ?? null,
-        reachable: null,
-      }),
-    )
+    const override = await getAiSettings(database)
+    return reply.send(LocalAiStatusSchema.parse(localAiStatusPayload(config, override)))
+  })
+
+  app.put('/api/v1/settings/local-ai', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to change AI settings.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    const parsed = LocalAiSettingsUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a complete Local AI configuration.')
+    }
+    const saved = await upsertAiSettings(database, {
+      enabled: parsed.data.enabled,
+      provider: parsed.data.provider,
+      baseUrl: parsed.data.baseUrl,
+      model: parsed.data.model,
+      keepAliveSeconds: parsed.data.keepAliveSeconds,
+      autoStart: parsed.data.autoStart,
+    })
+    return reply.send(LocalAiStatusSchema.parse(localAiStatusPayload(config, saved)))
+  })
+
+  app.delete('/api/v1/settings/local-ai', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to change AI settings.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    await clearAiSettings(database)
+    return reply.send(LocalAiStatusSchema.parse(localAiStatusPayload(config, null)))
+  })
+
+  app.post('/api/v1/settings/local-ai/test', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to test the AI connection.')
+    }
+    if (request.user.role !== 'owner') {
+      return sendProblem(reply, 403, 'FORBIDDEN', 'Only the local owner can manage integrations.')
+    }
+    const parsed = LocalAiTestRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Enter an AI provider, endpoint URL, and model.')
+    }
+    if (parsed.data.provider !== 'ollama') {
+      return reply.send(LocalAiTestResultSchema.parse({ reachable: false }))
+    }
+    // `isReachable()` swallows every failure; the caller only ever learns yes/no,
+    // never the response body, status, or error text.
+    const reachable = await new OllamaLocalAiProvider({
+      baseUrl: parsed.data.baseUrl,
+      model: parsed.data.model,
+    }).isReachable()
+    return reply.send(LocalAiTestResultSchema.parse({ reachable }))
   })
 
   app.get('/api/v1/settings/musicbrainz', async (request, reply) => {

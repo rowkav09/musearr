@@ -38,6 +38,7 @@ export {
   NullLocalAiProvider,
   OllamaLocalAiProvider,
   createLocalAiProvider,
+  resolveLocalAiConfig,
   parseSuggestions,
   type LocalAiCompletionRequest,
   type LocalAiConfig,

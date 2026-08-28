@@ -1,6 +1,7 @@
 import type { MusearrConfig } from '@musearr/config'
 import { MUSEARR_VERSION } from '@musearr/core'
 import {
+  getAiSettings,
   getPlaylistGenerationJobContext,
   getPlaylistLibraryTracks,
   replacePlaylistGenerationItems,
@@ -15,7 +16,9 @@ import {
   LocalAiSimilarTrackProvider,
   NullSimilarTrackProvider,
   PLAYLIST_ALGORITHM_VERSION,
+  resolveLocalAiConfig,
   type ExternalTrackSuggestion,
+  type LocalAiConfig,
   type SimilarTrackProvider,
 } from '@musearr/intelligence'
 import { MusicBrainzSimilarTrackProvider } from '@musearr/musicbrainz'
@@ -45,7 +48,7 @@ export async function generatePlaylist(
     throw new Error('The seed track is no longer in the library.')
   }
 
-  const similar = resolveSimilarTrackProvider(config, context.acquireMissing)
+  const similar = await resolveSimilarTrackProvider(database, config, context.acquireMissing)
   const suggestions: ExternalTrackSuggestion[] = context.acquireMissing
     ? await similar.findSimilar(
         {
@@ -91,7 +94,11 @@ export async function generatePlaylist(
   return { inLibrary: plan.inLibraryCount, gaps, next: 'done' }
 }
 
-function resolveSimilarTrackProvider(config: MusearrConfig, acquireMissing: boolean): SimilarTrackProvider {
+async function resolveSimilarTrackProvider(
+  database: Database,
+  config: MusearrConfig,
+  acquireMissing: boolean,
+): Promise<SimilarTrackProvider> {
   if (!acquireMissing) {
     return new NullSimilarTrackProvider()
   }
@@ -118,12 +125,28 @@ function resolveSimilarTrackProvider(config: MusearrConfig, acquireMissing: bool
     )
   }
 
-  const ai = createLocalAiProvider({
+  const environmentAi: LocalAiConfig = {
     enabled: config.MUSEARR_LOCAL_AI_ENABLED,
     provider: config.MUSEARR_LOCAL_AI_PROVIDER,
     baseUrl: config.MUSEARR_LOCAL_AI_BASE_URL,
     model: config.MUSEARR_LOCAL_AI_MODEL,
-  })
+    keepAliveSeconds: null,
+  }
+  const override = await getAiSettings(database)
+  const ai = createLocalAiProvider(
+    resolveLocalAiConfig(
+      environmentAi,
+      override
+        ? {
+            enabled: override.enabled,
+            provider: override.provider === 'ollama' ? 'ollama' : 'none',
+            baseUrl: override.baseUrl ?? undefined,
+            model: override.model ?? undefined,
+            keepAliveSeconds: override.keepAliveSeconds,
+          }
+        : null,
+    ),
+  )
   if (ai.enabled) {
     providers.push(new LocalAiSimilarTrackProvider(ai))
   }

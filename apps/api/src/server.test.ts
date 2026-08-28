@@ -326,3 +326,167 @@ describe('Setup connection testing security', () => {
     testConnectionSpy.mockRestore()
   })
 })
+
+describe('Local AI settings', () => {
+  async function ownerHeaders(app: ReturnType<typeof buildServer>, role: 'owner' | 'member' = 'owner') {
+    await app.ready()
+    return { cookie: `musearr_session=${app.jwt.sign({ sub: `${role}-id`, role })}` }
+  }
+
+  const overrideRow = {
+    enabled: true,
+    provider: 'ollama',
+    base_url: 'http://ollama.local:11434',
+    model: 'qwen2.5:3b',
+    keep_alive_seconds: -1,
+    auto_start: false,
+    updated_at: new Date('2026-08-28T00:00:00.000Z'),
+  }
+
+  function recordingDatabase(handler: (query: string) => unknown[]) {
+    const queries: string[] = []
+    const tag = (async (strings: TemplateStringsArray) => {
+      const query = strings.join(' ? ')
+      queries.push(query)
+      return handler(query)
+    }) as unknown as Database
+    ;(tag as unknown as { begin: (cb: (tx: Database) => unknown) => Promise<unknown> }).begin = (cb) =>
+      Promise.resolve(cb(tag))
+    return { database: tag, queries }
+  }
+
+  it('requires an authenticated owner', async () => {
+    const app = createServer()
+    const anon = await app.inject({ method: 'GET', url: '/api/v1/settings/local-ai' })
+    const member = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app, 'member'),
+    })
+    expect(anon.statusCode).toBe(401)
+    expect(member.statusCode).toBe(403)
+  })
+
+  it('reports the environment configuration when no override is stored', async () => {
+    const { database } = recordingDatabase(() => [])
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app),
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      enabled: false,
+      provider: 'none',
+      model: null,
+      baseUrl: null,
+      keepAliveSeconds: null,
+      autoStart: true,
+      source: 'environment',
+      reachable: null,
+    })
+  })
+
+  it('reports the stored override when one exists', async () => {
+    const { database } = recordingDatabase(() => [overrideRow])
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app),
+    })
+    expect(response.json()).toMatchObject({
+      enabled: true,
+      provider: 'ollama',
+      baseUrl: 'http://ollama.local:11434',
+      model: 'qwen2.5:3b',
+      keepAliveSeconds: -1,
+      autoStart: false,
+      source: 'database',
+    })
+  })
+
+  it('persists a full override on PUT and echoes it back', async () => {
+    const { database, queries } = recordingDatabase((query) =>
+      query.includes('INSERT INTO ai_settings') ? [overrideRow] : [],
+    )
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app),
+      payload: {
+        enabled: true,
+        provider: 'ollama',
+        baseUrl: 'http://ollama.local:11434',
+        model: 'qwen2.5:3b',
+        keepAliveSeconds: -1,
+        autoStart: false,
+      },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ source: 'database', enabled: true, provider: 'ollama' })
+    expect(queries.some((q) => q.includes('DELETE FROM ai_settings'))).toBe(true)
+    expect(queries.some((q) => q.includes('INSERT INTO ai_settings'))).toBe(true)
+  })
+
+  it('rejects an incomplete override on PUT', async () => {
+    const { database } = recordingDatabase(() => [])
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app),
+      payload: { enabled: true, provider: 'ollama' },
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ code: 'INVALID_REQUEST' })
+  })
+
+  it('clears the override on DELETE and falls back to the environment', async () => {
+    const { database, queries } = recordingDatabase(() => [])
+    const app = createServer({ database })
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/settings/local-ai',
+      headers: await ownerHeaders(app),
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ source: 'environment' })
+    expect(queries.some((q) => q.includes('DELETE FROM ai_settings'))).toBe(true)
+  })
+
+  it('probes a candidate endpoint without persisting it', async () => {
+    const { OllamaLocalAiProvider } = await import('@musearr/intelligence')
+    const reachableSpy = vi
+      .spyOn(OllamaLocalAiProvider.prototype, 'isReachable')
+      .mockResolvedValue(true)
+    const app = createServer()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/settings/local-ai/test',
+      headers: await ownerHeaders(app),
+      payload: { provider: 'ollama', baseUrl: 'http://ollama.local:11434', model: 'qwen2.5:3b' },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ reachable: true })
+    expect(reachableSpy).toHaveBeenCalledOnce()
+    reachableSpy.mockRestore()
+  })
+
+  it('reports a non-ollama provider as unreachable without probing', async () => {
+    const { OllamaLocalAiProvider } = await import('@musearr/intelligence')
+    const reachableSpy = vi.spyOn(OllamaLocalAiProvider.prototype, 'isReachable')
+    const app = createServer()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/settings/local-ai/test',
+      headers: await ownerHeaders(app),
+      payload: { provider: 'none', baseUrl: 'http://ollama.local:11434', model: 'x' },
+    })
+    expect(response.json()).toEqual({ reachable: false })
+    expect(reachableSpy).not.toHaveBeenCalled()
+    reachableSpy.mockRestore()
+  })
+})
