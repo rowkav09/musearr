@@ -1,194 +1,94 @@
 # Musearr
 
-[![Version](https://img.shields.io/badge/version-0.1.0--beta-blue.svg)](https://github.com/rowkav09/musearr/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENCE.md)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
-[![Docker Compose](https://img.shields.io/badge/docker--compose-supported-blue.svg)](docker-compose.yml)
-[![CI](https://github.com/rowkav09/musearr/actions/workflows/ci.yml/badge.svg)](https://github.com/rowkav09/musearr/actions/workflows/ci.yml)
+**Early Beta v0.1.0 — a self-hosted, local-first intelligence layer for your Plex music library.**
 
-**A self-hosted, local-first music intelligence companion for your Plex Media Server.**
+Musearr keeps the useful context around a music library close to the server that owns it. It mirrors selected Plex music-library and playlist data into a local PostgreSQL database, gives one local owner a dashboard and setup flow, and runs bounded background work for imports, reconciliation, and daily briefings.
 
-Musearr syncs and mirrors your Plex music library and user playlists into a local PostgreSQL database, providing a single-owner web dashboard, durable background jobs, automated reconciliation, and timezone-aware daily music briefings.
+This is an early beta for people who are comfortable operating Docker Compose and reviewing a changing product. It is not a hosted service, a Plex replacement, or a promise of production-grade hardening. Read [Self-hosting](docs/SELF_HOSTING.md) and [Privacy](docs/PRIVACY.md) before exposing an instance beyond a private network.
 
----
+## What works in v0.1.0
 
-## Key Features
+- A self-hostable stack: Next.js dashboard, Fastify API, PostgreSQL, background worker, and Caddy reverse proxy.
+- Single-owner setup with a Plex connection test and encrypted-at-rest Plex-token storage.
+- Selected Plex music-library and user-playlist imports, using bounded pages, idempotent upserts, durable jobs, and scheduled reconciliation.
+- Stored sync-run status and a dashboard that distinguishes not-started, queued, running, completed, failed, and cancelled work.
+- A locally stored, timezone-aware daily briefing; optional Discord webhook delivery is worker-only and retry-safe.
+- Container builds and pull-request validation for lint/type checks, tests, production builds, Docker builds, and Compose validation. See [CI](docs/CI.md).
 
-- **Plex Syncing & Mirroring:** Import music libraries, albums, artists, tracks, and playlists incrementally using bounded pagination and idempotent upserts.
-- **Local-First & Private:** All Plex library data, token credentials, sync histories, and briefings remain on your infrastructure. Plex tokens are encrypted at rest using AES-256 encryption.
-- **Durable Background Jobs:** Tracks job statuses (`queued`, `running`, `completed`, `failed`, `cancelled`) with background execution and scheduled reconciliation.
-- **Daily Briefings:** Generates timezone-aware daily music summaries locally, with optional outbound Discord webhook delivery managed safely by the background worker.
-- **Production-Ready Stack:** Built on Next.js 15, Fastify 5, PostgreSQL 16, Caddy reverse proxy, and Docker Compose.
+## What is planned, not a current promise
 
----
+Musearr is still turning its foundation into a dependable library companion. Planned work includes fixture-driven Plex-import correctness, resumability and recovery verification, explainable recommendations and playlists, review-first metadata intelligence, and carefully scoped optional integrations.
 
-## Tech Stack
+An early foundation for **playlist generation from a seed track** now exists: a deterministic planner, a deterministic MusicBrainz + ListenBrainz similar-track source, an optional [Lidarr](docs/PLAYLIST_GENERATION.md) acquisition step for tracks that are not yet in the library, an optional Plex publish of the finished playlist as a Musearr-managed playlist, and an off-by-default [local AI](docs/LOCAL_AI.md) provider interface. These are opt-in, still maturing, and not a delivery promise.
 
-| Component | Technology | Description |
-| :--- | :--- | :--- |
-| **Frontend** | Next.js 15 (React 19, Tailwind CSS) | Single-owner management dashboard and setup wizard |
-| **API** | Fastify 5 (TypeScript) | Secure backend REST API handling auth, sync controls, and database operations |
-| **Worker** | Node.js (TypeScript) | Background job processor for imports, reconciliation, and webhook dispatch |
-| **Database** | PostgreSQL 16 | Primary data store for library mirrors, job queues, and daily briefings |
-| **Reverse Proxy** | Caddy | Ingress routing, SSL termination, and same-origin API proxying |
+The detailed product intent and milestones live in the [product blueprint](docs/PRODUCT_BLUEPRINT.md). Treat that document as direction, not a guarantee of delivery dates or supported behavior.
 
----
+## Deliberate non-goals
 
-## System Architecture
+Musearr does **not**:
+
+- stream or play audio, or control Plex playback;
+- silently write metadata or audio files back to Plex;
+- provide a hosted cloud account, multi-user tenancy, social features, or external discovery as part of the core path;
+- require or depend on a hosted LLM.
+
+Two capabilities are **opt-in and disabled by default**, and only act on services you run yourself:
+
+- acquisition of missing tracks through a Lidarr instance you configure;
+- publishing a generated playlist back to Plex as a clearly Musearr-managed playlist. Musearr never modifies a playlist you created.
+
+Any future metadata change must be review-first, consented to, and auditable. Local AI, when enabled, talks only to a model endpoint you host. The core product remains focused on the library you already own.
+
+## Architecture at a glance
 
 ```text
-Browser / Client
-      │
-      ▼
-┌───────────┐
-│   Caddy   │ (Reverse Proxy)
-└─────┬─────┘
-      │
-      ├──────────────────────┐
-      ▼                      ▼
-┌───────────┐          ┌───────────┐
-│ Next.js   │          │  Fastify  │
-│ Dashboard │          │    API    │
-└───────────┘          └─────┬─────┘
-                             │
-     ┌───────────────────────┼───────────────────────┐
-     ▼                       ▼                       ▼
-┌───────────┐         ┌─────────────┐       ┌─────────────────┐
-│ PostgreSQL│ ◄───────┤ Background  │ ────► │ Plex Media      │
-│ Database  │         │   Worker    │       │ Server          │
-└───────────┘         └──────┬──────┘       └─────────────────┘
-                             │
-                             ▼
-                      ┌─────────────┐
-                      │ Discord     │ (Optional)
-                      │ Webhook     │
-                      └─────────────┘
+Browser → Caddy → Next.js dashboard → Fastify API → PostgreSQL
+                                        ↑             ↑
+Plex Media Server ──────────────────────┘             │
+Background worker ─────────────────────────────────────┘
 ```
 
-The Fastify API acts as the sole access layer to PostgreSQL and Plex. Encrypted credentials and tokens are strictly stored on the server side and never exposed to the frontend browser interface.
+The browser uses same-origin API routes. The API is the only gateway to Plex and PostgreSQL; encrypted Plex credentials do not enter the browser. PostgreSQL holds the library mirror, durable jobs, sync history, and locally generated briefings. The worker performs bounded imports, reconciliation, and optional outbound Discord delivery. See [Architecture](docs/ARCHITECTURE.md) for the implementation reference.
 
----
+## Self-hosting quick start
 
-## Quick Start (Docker Compose)
-
-### Prerequisites
-
-- [Docker Engine](https://docs.docker.com/engine/install/) (v24.0+) and [Docker Compose](https://docs.docker.com/compose/install/) (v2.20+)
-- A running [Plex Media Server](https://www.plex.tv/) instance with a music library
-
-### Setup & Run
-
-1. **Clone the repository:**
+1. Install Docker Compose, then copy `.env.example` to `.env`.
+2. Generate unique 32-byte base64 values for `MUSEARR_ENCRYPTION_KEY` and `MUSEARR_SESSION_SECRET`; do not reuse them between instances.
+3. Review `MUSEARR_WEB_ORIGIN`, network exposure, and optional webhook settings.
+4. Start a source build:
 
    ```sh
-   git clone https://github.com/rowkav09/musearr.git
-   cd musearr
+   docker compose up --build
    ```
 
-2. **Configure environment variables:**
+5. Open the dashboard at `http://localhost:3000` and complete the local setup flow.
 
-   ```sh
-   cp .env.example .env
-   ```
+For development, use Node.js 24, `npm install`, `docker compose up db -d`, `npm run migrate`, then run `npm run dev:web`, `npm run dev:api`, and `npm run dev:worker` in separate terminals.
 
-   Generate secure 32-byte base64 keys for application encryption and session management:
+For release-image deployment instructions, configuration notes, and operational limitations, read [Self-hosting](docs/SELF_HOSTING.md). Keep an early-beta instance behind an authenticated private network or reverse proxy as described in [SECURITY.md](SECURITY.md).
 
-   ```sh
-   openssl rand -base64 32 # Use for MUSEARR_ENCRYPTION_KEY
-   openssl rand -base64 32 # Use for MUSEARR_SESSION_SECRET
-   ```
+## Privacy and security
 
-   Update `MUSEARR_ENCRYPTION_KEY` and `MUSEARR_SESSION_SECRET` in your `.env` file.
+Musearr is designed to keep Plex library context local, but early beta is not a substitute for your own threat model or operational controls.
 
-3. **Start the application:**
+- Plex tokens are encrypted at rest with an application key; session cookies are HttpOnly and same-site.
+- Library and playlist data are stored in the PostgreSQL database you operate.
+- Optional Discord delivery sends the persisted daily briefing to the webhook URL you configure; it is not sent to browsers.
+- Treat Plex tokens, webhook URLs, database credentials, and Musearr secrets as passwords. Never commit `.env` or paste them into issues, logs, or pull requests.
 
-   ```sh
-   docker compose up -d --build
-   ```
+See [Privacy](docs/PRIVACY.md) for data-flow and limitation details, and [Security policy](SECURITY.md) for private vulnerability reporting.
 
-4. **Access the Web Dashboard:**
+## Documentation and contributing
 
-   Open `http://localhost:3000` in your browser and complete the initial setup flow to connect your Plex account.
+- [Self-hosting guide](docs/SELF_HOSTING.md)
+- [Privacy notes](docs/PRIVACY.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Product blueprint](docs/PRODUCT_BLUEPRINT.md)
+- [CI and delivery](docs/CI.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
----
+Contributions are welcome as focused, tested pull requests. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before starting non-trivial work, and use GitHub's private security-advisory flow for vulnerabilities.
 
-## Local Development Setup
+Musearr is available under the [MIT License](LICENSE.md).
 
-### Prerequisites
-
-- Node.js >= 22.0.0
-- npm >= 10.0.0
-- Docker (for local PostgreSQL instance)
-
-### Setup Steps
-
-1. **Install dependencies:**
-
-   ```sh
-   npm install
-   ```
-
-2. **Start PostgreSQL database:**
-
-   ```sh
-   docker compose up db -d
-   ```
-
-3. **Run database migrations:**
-
-   ```sh
-   npm run migrate
-   ```
-
-4. **Start development servers:**
-
-   Run the following commands in separate terminal sessions:
-
-   ```sh
-   npm run dev:web    # Next.js frontend (http://localhost:3000)
-   npm run dev:api    # Fastify API (http://localhost:3001)
-   npm run dev:worker # Background worker
-   ```
-
----
-
-## Testing & Quality Assurance
-
-Run the test suite and static checks across all monorepo packages:
-
-```sh
-# Run code linting and TypeScript type checking
-npm run check
-
-# Run Vitest test suite
-npm test
-```
-
----
-
-## Non-Goals & Scope
-
-Musearr is intentionally designed as a lightweight metadata intelligence layer. It explicitly does **not**:
-
-- Stream, play, or download audio files.
-- Replace Plex Media Server or alter audio playback devices.
-- Unilaterally modify or overwrite audio file tags or server media files.
-- Require cloud subscriptions or third-party SaaS infrastructure.
-
----
-
-## Documentation
-
-- [Self-Hosting Guide](docs/SELF_HOSTING.md) — Comprehensive deployment options, reverse proxy configurations, and production hardening.
-- [Architecture Reference](docs/ARCHITECTURE.md) — Detailed technical breakdown of database schemas, API routes, and background jobs.
-- [Product Blueprint](docs/PRODUCT_BLUEPRINT.md) — Long-term roadmap, design principles, and planned features.
-- [Privacy Policy](docs/PRIVACY.md) — Data flow analysis and local-first security practices.
-- [CI/CD Workflow](docs/CI.md) — GitHub Actions pipeline details and Docker build specifications.
-- [Contributing Guidelines](CONTRIBUTING.md) — Code style, pull request process, and development standards.
-- [Security Policy](SECURITY.md) — Security advisories and vulnerability reporting protocols.
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENCE.md).

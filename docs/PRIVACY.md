@@ -20,11 +20,17 @@ These controls depend on your deployment being configured correctly. Protect `MU
 
 ### Optional outbound transfer
 
-Musearr does not require a hosted account, cloud LLM, external discovery provider, or social service for its core operation.
+Musearr does not require a hosted account, cloud LLM, external discovery provider, or social service for its core operation. The transfers below are all opt-in and off by default.
 
 If you set `MUSEARR_DISCORD_WEBHOOK_URL`, the worker sends the persisted daily briefing to that Discord webhook. The webhook is worker-only and is not exposed to browsers. Sending a briefing transfers the content of that briefing to Discord under Discord's terms and controls; do not enable it unless that is acceptable for your library context.
 
 Optional Plex webhooks can request a narrower selected-library refresh. Plex traffic occurs between the worker/API and the Plex server you configure.
+
+If you set `MUSEARR_MUSICBRAINZ_ENABLED=true`, playlist generation sends the seed track's artist and title, and the resulting similar-recording identifiers, to MetaBrainz (`musicbrainz.org` and `labs.api.listenbrainz.org`) or the mirror you configure, to find similar tracks. No listening history, ratings, or library contents are sent. It is off by default.
+
+If you enable local AI (`MUSEARR_LOCAL_AI_ENABLED=true`), Musearr sends prompts to the model endpoint you host at `MUSEARR_LOCAL_AI_BASE_URL`. That endpoint is under your control; Musearr never contacts a hosted LLM.
+
+Optional acquisition sends the artist/album of tracks not already in your library to the Lidarr instance you configure.
 
 ## Retention and control
 

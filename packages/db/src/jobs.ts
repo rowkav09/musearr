@@ -5,8 +5,15 @@ export const PLAYLIST_SYNC_QUEUE = 'playlist.sync'
 export const RECONCILIATION_QUEUE = 'library.reconcile'
 export const RECOMMENDATION_RUN_QUEUE = 'recommendation.run'
 export const DAILY_BRIEF_QUEUE = 'daily-brief.generate'
+export const PLAYLIST_GENERATION_QUEUE = 'playlist.generate'
+export const PLAYLIST_ACQUISITION_QUEUE = 'playlist.acquire'
+export const PLAYLIST_PUBLISH_QUEUE = 'playlist.publish'
+export const PLAYLIST_GENERATION_RECONCILE_QUEUE = 'playlist.generate.reconcile'
 const RECONCILIATION_SCHEDULE_KEY = 'default'
 const DAILY_BRIEF_SCHEDULE_KEY = 'default'
+const PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY = 'default'
+/** How often the reconciler advances awaiting-acquisition generations. */
+const PLAYLIST_GENERATION_RECONCILE_CRON = '*/10 * * * *'
 
 export type LibrarySyncJob = {
   librarySectionId: string
@@ -32,6 +39,24 @@ export type RecommendationRunJob = {
 export type DailyBriefJob = {
   trigger: 'manual' | 'scheduled'
   userId?: string
+}
+
+export type PlaylistGenerationJob = {
+  generationId: string
+  trigger: 'manual'
+}
+
+export type PlaylistAcquisitionJob = {
+  generationId: string
+}
+
+export type PlaylistPublishJob = {
+  generationId: string
+  trigger: 'manual' | 'reconciliation'
+}
+
+export type PlaylistGenerationReconcileJob = {
+  trigger: 'scheduled'
 }
 
 export function reconciliationCron(intervalMinutes: number): string {
@@ -80,6 +105,17 @@ export async function scheduleDailyBrief(
   )
 }
 
+export async function schedulePlaylistGenerationReconcile(
+  jobQueue: Pick<PgBoss, 'schedule'>,
+): Promise<void> {
+  await jobQueue.schedule(
+    PLAYLIST_GENERATION_RECONCILE_QUEUE,
+    PLAYLIST_GENERATION_RECONCILE_CRON,
+    { trigger: 'scheduled' },
+    { key: PLAYLIST_GENERATION_RECONCILE_SCHEDULE_KEY, tz: 'UTC' },
+  )
+}
+
 export async function startJobQueue(
   databaseUrl: string,
   onError: (error: Error) => void,
@@ -121,6 +157,33 @@ export async function startJobQueue(
     retryBackoff: true,
     expireInSeconds: 600,
     retentionSeconds: 30 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_GENERATION_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 15,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_ACQUISITION_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 60,
+    retryBackoff: true,
+    expireInSeconds: 900,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_PUBLISH_QUEUE, {
+    retryLimit: 3,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 600,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  })
+  await boss.createQueue(PLAYLIST_GENERATION_RECONCILE_QUEUE, {
+    retryLimit: 1,
+    retryDelay: 30,
+    expireInSeconds: 600,
+    retentionSeconds: 7 * 24 * 60 * 60,
   })
   return boss
 }

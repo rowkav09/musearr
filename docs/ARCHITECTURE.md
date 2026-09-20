@@ -23,6 +23,8 @@ flowchart LR
 
 The browser only uses same-origin API routes. The API is the sole gateway to Plex and PostgreSQL; encrypted Plex credentials never enter the browser. PostgreSQL stores both the library mirror and durable background jobs. The worker performs bounded, retry-safe Plex imports, scheduled reconciliation, playlist imports, and intelligence jobs.
 
+Seed-track playlist generation adds worker jobs for planning, an optional Lidarr acquisition step, a scheduled reconciler that advances acquired tracks as they are mirrored, and an optional additive publish of a Musearr-managed playlist to Plex. Lidarr and local AI act only on owner-run services and are off by default. See `PLAYLIST_GENERATION.md` and `LOCAL_AI.md`.
+
 ## Data and trust model
 
 Plex identifiers are retained alongside Musearr IDs so records can be reconciled safely. Library imports are idempotent and keep unresolved playlist entries until their tracks are available. The system never silently changes Plex metadata or audio files. Future metadata fixes must be proposed with evidence, approved by the user, and recorded in the audit log.

@@ -6,7 +6,9 @@ Thanks for helping build a thoughtful, private music companion for Plex. Musearr
 
 Open an issue before investing in a non-trivial feature. Explain the listening or library-management problem, the intended user outcome, and how it preserves Musearr's local-first and privacy-first principles. Please do not include Plex tokens, session secrets, private server addresses, or personal listening data in issues, pull requests, screenshots, or logs.
 
-The MVP deliberately does not download media, control Plex playback, silently modify metadata, or depend on a hosted LLM. Contributions in those areas need an agreed product decision first.
+The MVP deliberately does not control Plex playback, silently modify metadata, or depend on a hosted LLM. Contributions in those areas need an agreed product decision first.
+
+Two capabilities are opt-in and off by default, and act only on services the owner runs: acquiring missing tracks through a configured Lidarr instance, and publishing a generated playlist to Plex as a Musearr-managed playlist (never a write to a playlist the owner created). Local AI, when enabled, targets only an owner-hosted model endpoint. See `docs/PLAYLIST_GENERATION.md` and the product blueprint decision record before extending these.
 
 ## Local setup
 
