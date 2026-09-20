@@ -1,10 +1,10 @@
 # Musearr
 
-[![Version](https://img.shields.io/badge/version-0.1.0--beta-blue.svg)](https://github.com/musearr/musearr/releases)
+[![Version](https://img.shields.io/badge/version-0.1.0--beta-blue.svg)](https://github.com/rowkav09/musearr/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENCE.md)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Docker Compose](https://img.shields.io/badge/docker--compose-supported-blue.svg)](docker-compose.yml)
-[![CI](https://github.com/musearr/musearr/actions/workflows/ci.yml/badge.svg)](https://github.com/musearr/musearr/actions/workflows/ci.yml)
+[![CI](https://github.com/rowkav09/musearr/actions/workflows/ci.yml/badge.svg)](https://github.com/rowkav09/musearr/actions/workflows/ci.yml)
 
 **A self-hosted, local-first music intelligence companion for your Plex Media Server.**
 
@@ -81,7 +81,7 @@ The Fastify API acts as the sole access layer to PostgreSQL and Plex. Encrypted 
 1. **Clone the repository:**
 
    ```sh
-   git clone https://github.com/musearr/musearr.git
+   git clone https://github.com/rowkav09/musearr.git
    cd musearr
    ```
 
