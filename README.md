@@ -91,3 +91,4 @@ See [Privacy](docs/PRIVACY.md) for data-flow and limitation details, and [Securi
 Contributions are welcome as focused, tested pull requests. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before starting non-trivial work, and use GitHub's private security-advisory flow for vulnerabilities.
 
 Musearr is available under the [MIT License](LICENSE.md).
+

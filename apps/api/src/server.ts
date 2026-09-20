@@ -10,6 +10,7 @@ import {
   CompleteSetupRequestSchema,
   DailyBriefResponseSchema,
   DashboardOverviewSchema,
+  CreatePlaylistProposalRequestSchema,
   GeneratePlaylistRequestSchema,
   LidarrConnectionRequestSchema,
   LidarrConnectionResultSchema,
@@ -21,6 +22,8 @@ import {
   PlaylistGenerationAcceptedSchema,
   PlaylistGenerationListResponseSchema,
   PlaylistGenerationResponseSchema,
+  PlaylistProposalListResponseSchema,
+  PlaylistProposalSchema,
   PlexConnectionRequestSchema,
   PlexPinCreateResponseSchema,
   PlexPinStatusResponseSchema,
@@ -32,11 +35,14 @@ import {
   RecommendationQuerySchema,
   type SetupStatus,
   SystemStatusSchema,
+  ScrobbleImportRequestSchema,
+  ScrobbleImportResponseSchema,
 } from '@musearr/contracts'
-import { encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
+import { decryptSecret, encryptSecret, hashPassword, MUSEARR_VERSION, verifyPassword } from '@musearr/core'
 import {
   createDatabase,
   createPlaylistGeneration,
+  createPlaylistProposal,
   DAILY_BRIEF_QUEUE,
   getDashboardOverview,
   getDatabaseStatus,
@@ -46,12 +52,17 @@ import {
   getListeningInsightSummary,
   getLidarrConnectionStatus,
   getPlaylistGeneration,
+  getPlaylistProposal,
   getPlaylistSeedLabel,
+  getRecommendationCandidates,
   getSetupStatus,
   getSyncRun,
   listPlaylistGenerations,
+  listPlaylistProposals,
+  markPlaylistProposalExported,
   listSyncRuns,
   getUserTimezone,
+  importScrobbles,
   insertInitialSetup,
   LIBRARY_SYNC_QUEUE,
   PLAYLIST_GENERATION_QUEUE,
@@ -61,6 +72,7 @@ import {
   upsertLidarrConnection,
   type Database,
 } from '@musearr/db'
+import { generatePlaylistProposalDraft } from '@musearr/intelligence'
 import {
   checkPlexPin,
   createPlexPin,
@@ -332,6 +344,103 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     } catch (error) {
       if (error instanceof PlexConnectionError) {
         return sendProblem(reply, error.code === 'UNAUTHENTICATED' ? 401 : 422, error.code, error.message)
+      }
+      throw error
+    }
+  })
+
+  app.get('/api/v1/playlists/proposals', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to view playlist proposals.')
+    }
+
+    const proposals = await listPlaylistProposals(database, request.user.sub)
+    return reply.send(PlaylistProposalListResponseSchema.parse({ proposals }))
+  })
+
+  app.post('/api/v1/playlists/proposals', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to generate playlist proposals.')
+    }
+
+    const parsed = CreatePlaylistProposalRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide valid proposal options.')
+    }
+
+    const candidates = await getRecommendationCandidates(database, request.user.sub)
+    if (candidates.length === 0) {
+      return sendProblem(reply, 422, 'NO_CANDIDATES', 'Library has no track candidates for playlist generation.')
+    }
+
+    const proposalOptions: { title?: string; limit: number } = { limit: parsed.data.limit }
+    if (parsed.data.title) {
+      proposalOptions.title = parsed.data.title
+    }
+    const draft = generatePlaylistProposalDraft(candidates, parsed.data.kind, proposalOptions)
+
+    const proposal = await createPlaylistProposal(database, {
+      userId: request.user.sub,
+      title: draft.title,
+      kind: draft.kind,
+      algorithmVersion: draft.algorithmVersion,
+      trackIds: draft.trackIds,
+    })
+
+    return reply.code(201).send(PlaylistProposalSchema.parse(proposal))
+  })
+
+  app.post('/api/v1/playlists/proposals/:id/export-to-plex', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to export playlist proposal to Plex.')
+    }
+
+    const rawId = (request.params as { id?: unknown }).id
+    const id = typeof rawId === 'string' ? rawId : ''
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid playlist proposal id.')
+    }
+
+    const proposal = await getPlaylistProposal(database, id, request.user.sub)
+    if (!proposal) {
+      return sendProblem(reply, 404, 'PROPOSAL_NOT_FOUND', 'Playlist proposal not found.')
+    }
+
+    const sources = await getLibrarySyncSources(database)
+    const source = sources[0]
+    if (!source) {
+      return sendProblem(reply, 400, 'NO_PLEX_SERVER', 'No Plex server configured for playlist export.')
+    }
+
+    const encryptionKey = configurationForSetup(config)
+    if (!encryptionKey) {
+      return sendProblem(reply, 503, 'MISSING_ENCRYPTION_KEY', 'Encryption key is missing.')
+    }
+
+    try {
+      const plexToken = decryptSecret(source.tokenCiphertext, encryptionKey)
+      const client = new PlexClient(source.baseUrl, plexToken)
+      const trackRatingKeys = proposal.items.map((item) => item.plexRatingKey)
+
+      const createdPlexPlaylist = await client.createPlaylist(proposal.title, trackRatingKeys)
+      await markPlaylistProposalExported(
+        database,
+        proposal.id,
+        request.user.sub,
+        createdPlexPlaylist.plexRatingKey,
+      )
+
+      const updatedProposal = await getPlaylistProposal(database, proposal.id, request.user.sub)
+      return reply.send(PlaylistProposalSchema.parse(updatedProposal))
+    } catch (error) {
+      if (error instanceof PlexConnectionError) {
+        return sendProblem(reply, 502, error.code, error.message)
       }
       throw error
     }
@@ -948,6 +1057,40 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     )
   })
 
+  app.post('/api/v1/imports/scrobbles', async (request, reply) => {
+    try {
+      await request.jwtVerify()
+    } catch {
+      return sendProblem(reply, 401, 'UNAUTHENTICATED', 'Sign in to import scrobbles.')
+    }
+
+    const parsed = ScrobbleImportRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return sendProblem(reply, 400, 'INVALID_REQUEST', 'Provide a valid list of scrobbles to import.')
+    }
+
+    try {
+      const scrobbles = parsed.data.scrobbles.map((s) => {
+        const item: { artistName: string; trackTitle: string; occurredAt: string; albumTitle?: string } = {
+          artistName: s.artistName,
+          trackTitle: s.trackTitle,
+          occurredAt: s.occurredAt,
+        }
+        if (s.albumTitle !== undefined) {
+          item.albumTitle = s.albumTitle
+        }
+        return item
+      })
+      const result = await importScrobbles(database, request.user.sub, scrobbles)
+      return reply.code(200).send(ScrobbleImportResponseSchema.parse(result))
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NO_PLEX_SERVER_CONFIGURED') {
+        return sendProblem(reply, 400, 'NO_PLEX_SERVER', 'Configure a Plex server before importing scrobbles.')
+      }
+      throw error
+    }
+  })
+
   if (ownsDatabase) {
     app.addHook('onClose', async () => {
       await jobQueue?.stop?.()
@@ -957,3 +1100,4 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   return app
 }
+

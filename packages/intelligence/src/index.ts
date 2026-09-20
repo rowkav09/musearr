@@ -7,6 +7,11 @@ export {
   type RecommendationReason,
   type RecommendationReasonCode,
 } from './ranking.js'
+
+export {
+  generatePlaylistProposalDraft,
+  type PlaylistProposalDraft,
+} from './playlist-proposals.js'
 export {
   DAILY_BRIEF_ALGORITHM_VERSION,
   buildDailyBrief,
