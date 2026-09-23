@@ -18,6 +18,9 @@ jobs:
     name: Verify TypeScript workspace
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no stored token
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,7 +30,12 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run check
-      - run: npm test
+      - run: npm run test:coverage
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage/lcov.info
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          fail_ci_if_error: false
       - run: npm run build
 
   container-build:
