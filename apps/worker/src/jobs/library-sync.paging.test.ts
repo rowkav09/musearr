@@ -12,6 +12,7 @@ const db = vi.hoisted(() => ({
   completeSyncRun: vi.fn(async () => undefined),
   failSyncRun: vi.fn(async () => undefined),
   getLibrarySyncSources: vi.fn(),
+  getResumableSyncProgress: vi.fn(async (): Promise<{ offset: number; importedTracks: number; skippedTracks: number } | null> => null),
   rebuildListeningRollups: vi.fn(async () => undefined),
   // The job reuses one progress object, so snapshot the offset at call time like the real UPDATE does.
   savedOffsets: [] as number[],
@@ -159,5 +160,40 @@ describe('syncPlexLibrary paging', () => {
     const failure = (db.failSyncRun.mock.calls[0] as unknown as [unknown, string, { retryable: boolean }])[2]
     expect(failure).toMatchObject({ retryable: true })
     expect(db.completeSyncRun).not.toHaveBeenCalled()
+  })
+
+  it('resumes from the saved offset of a recent retryable failure', async () => {
+    db.getResumableSyncProgress.mockResolvedValueOnce({ offset: 200, importedTracks: 198, skippedTracks: 2 })
+    const metadata = generatedTracks(450)
+    const fetchMock = vi.fn(createSeedPlexFetch(metadata as never))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await syncPlexLibrary(database, encryptionKey, 'section-row-1', 'reconciliation')
+
+    expect(db.getResumableSyncProgress).toHaveBeenCalledWith(database, 'section-row-1')
+    expect(db.beginSyncRun).toHaveBeenCalledWith(database, expect.anything(), 'reconciliation', {
+      offset: 200,
+      importedTracks: 198,
+      skippedTracks: 2,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('X-Plex-Container-Start=200')
+    expect(upsertedKeys()[0]).toBe('5200')
+    expect(db.savedOffsets).toEqual([400, 450])
+    expect(result).toEqual({ importedTracks: 448, skippedTracks: 2 })
+  })
+
+  it('starts from zero when there is nothing to resume', async () => {
+    const fetchMock = vi.fn(createSeedPlexFetch())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await syncPlexLibrary(database, encryptionKey, 'section-row-1', 'manual')
+
+    expect(db.beginSyncRun).toHaveBeenCalledWith(database, expect.anything(), 'manual', {
+      offset: 0,
+      importedTracks: 0,
+      skippedTracks: 0,
+    })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('X-Plex-Container-Start=0')
   })
 })
