@@ -4,6 +4,7 @@ import {
   completeSyncRun,
   failSyncRun,
   getLibrarySyncSources,
+  getResumableSyncProgress,
   rebuildListeningRollups,
   updateSyncProgress,
   upsertLibraryTracks,
@@ -30,8 +31,13 @@ export async function syncPlexLibrary(
     throw new Error('The requested Plex music library is no longer selected.')
   }
 
-  const runId = await beginSyncRun(database, source, trigger)
-  const progress = { offset: 0, importedTracks: 0, skippedTracks: 0 }
+  // Continue from where a recent retryable failure stopped instead of re-reading the whole library.
+  const progress = (await getResumableSyncProgress(database, source.librarySectionId)) ?? {
+    offset: 0,
+    importedTracks: 0,
+    skippedTracks: 0,
+  }
+  const runId = await beginSyncRun(database, source, trigger, { ...progress })
 
   try {
     const client = new PlexClient(source.baseUrl, decryptSecret(source.tokenCiphertext, encryptionKey))
