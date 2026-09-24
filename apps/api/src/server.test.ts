@@ -8,6 +8,8 @@ const apps: ReturnType<typeof buildServer>[] = []
 function createServer(
   options: {
     database?: Database
+    // vitest 4 types vi.fn() as a mock of any function or class, so cast it
+    // to the queue's send() here instead of in every test.
     jobQueue?: { send: ReturnType<typeof vi.fn> }
     webhookSecret?: string
   } = {},
@@ -23,7 +25,7 @@ function createServer(
     }),
     database: options.database ?? ({} as Database),
     startJobQueue: false,
-    ...(options.jobQueue ? { jobQueue: options.jobQueue } : {}),
+    ...(options.jobQueue ? { jobQueue: options.jobQueue as unknown as NonNullable<NonNullable<Parameters<typeof buildServer>[0]>['jobQueue']> } : {}),
   })
   apps.push(app)
   return app
