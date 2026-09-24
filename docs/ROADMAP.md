@@ -38,13 +38,21 @@ The near-term exit criteria are fixture import parity, zero duplicate entities, 
 - Immutable local daily briefings, with optional idempotent Discord delivery.
 - Release-candidate hardening: secure Docker installation, backups, observability, tests, and clean-host documentation verification.
 
+## Opt-in, off by default
+
+These exist today but stay disabled until the owner turns them on, and only act on services the owner runs. See the [product blueprint](PRODUCT_BLUEPRINT.md) and [playlist generation](PLAYLIST_GENERATION.md).
+
+- Acquisition of missing tracks for a generated playlist through a Lidarr instance the owner configures.
+- Publishing a generated playlist to Plex as a clearly Musearr-managed playlist. Publishes are additive and idempotent; a playlist the owner created is never touched.
+- A local AI provider interface for a model the owner hosts. The deterministic pipeline is unchanged when it is off.
+
 ## Not planned
 
 The following are not planned for the MVP direction:
 
-- Playback, downloads, acquisition, or a Plexamp replacement.
+- Playback, downloads outside the opt-in Lidarr step above, or a Plexamp replacement.
 - Cloud LLMs, external music discovery, social features, multi-user collaboration, or a public plugin marketplace.
-- Automatic Plex metadata or playlist writes.
+- Automatic Plex metadata writes, or any change to playlists the owner created.
 - Runtime third-party plugins, a distributed microservice platform, Kubernetes, Redis/Kafka, or a general-purpose workflow engine.
 
 These boundaries keep Musearr local, explainable, review-first, and focused on music already in the owner’s Plex library.
