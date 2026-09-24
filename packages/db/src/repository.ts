@@ -1148,7 +1148,8 @@ export async function upsertUserPlaylists(
         )
         ON CONFLICT (plex_server_id, plex_rating_key) DO UPDATE
         SET name = EXCLUDED.name,
-            kind = 'user',
+            -- Plex also lists playlists Musearr published; keep those marked as Musearr's.
+            kind = CASE WHEN playlists.managed_by_musearr THEN playlists.kind ELSE 'user' END,
             revision = EXCLUDED.revision,
             last_synced_at = NOW(),
             updated_at = NOW()
